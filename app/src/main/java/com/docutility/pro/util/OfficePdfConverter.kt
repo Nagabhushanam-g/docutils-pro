@@ -12,6 +12,9 @@ import org.w3c.dom.Node
 import java.io.File
 import java.util.zip.ZipInputStream
 import javax.xml.parsers.DocumentBuilderFactory
+import org.xml.sax.InputSource
+import org.xml.sax.SAXException
+import java.io.StringReader
 
 /**
  * Basic, offline OOXML-to-PDF conversion. Supports DOCX paragraphs and XLSX cell
@@ -27,12 +30,19 @@ object OfficePdfConverter {
     }
 
     private fun parse(bytes: ByteArray): org.w3c.dom.Document {
+        // Android's built-in XML parser does not support every Apache Xerces feature.
+        // Reject DTDs before parsing and block external entity resolution explicitly.
+        val xml = bytes.toString(Charsets.UTF_8)
+        require(!Regex("<!\\s*(DOCTYPE|ENTITY)", RegexOption.IGNORE_CASE).containsMatchIn(xml)) {
+            "XML DTDs and entities are not supported"
+        }
         val factory = DocumentBuilderFactory.newInstance()
         factory.isNamespaceAware = true
-        factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-        factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
-        factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-        return factory.newDocumentBuilder().parse(bytes.inputStream())
+        factory.isXIncludeAware = false
+        factory.isExpandEntityReferences = false
+        val builder = factory.newDocumentBuilder()
+        builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
+        return builder.parse(bytes.inputStream())
     }
 
     private fun zipEntries(context: Context, uri: Uri): Map<String, ByteArray> {
