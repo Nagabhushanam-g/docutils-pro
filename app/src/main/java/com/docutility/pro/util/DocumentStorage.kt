@@ -59,6 +59,22 @@ object DocumentStorage {
         }
     }
 
+    /** Rename only a document owned by this app; do not change its folder or URI. */
+    fun rename(context: Context, item: SavedItem, requestedName: String): Boolean {
+        val stem = requestedName.trim().replace(Regex("[\\\\/:*?\\\"<>|]"), "_")
+            .removeSuffix(if (item.isPdf) ".pdf" else ".jpg").trim()
+        if (stem.isBlank() || stem.length > 100) return false
+        val name = stem + if (item.isPdf) ".pdf" else ".jpg"
+        return context.contentResolver.update(
+            item.uri,
+            ContentValues().apply { put(MediaStore.MediaColumns.DISPLAY_NAME, name) },
+            null, null
+        ) > 0
+    }
+
+    fun delete(context: Context, item: SavedItem): Boolean =
+        context.contentResolver.delete(item.uri, null, null) > 0
+
     data class SavedItem(val uri: Uri, val name: String, val isPdf: Boolean)
 
     fun recentFiles(context: Context, limit: Int = 30): List<SavedItem> {
