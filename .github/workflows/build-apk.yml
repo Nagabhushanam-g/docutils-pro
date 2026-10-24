@@ -83,7 +83,7 @@ jobs:
           const successfulRunIds = new Set(runs.map(r => r.id));
           const successful = apkArtifacts.filter(a => successfulRunIds.has(a.workflow_run?.id));
           successful.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-          const retained = new Set(successful.slice(0, 10).map(a => a.id));
+          const retained = new Set(successful.slice(0, 9).map(a => a.id));
           let deleted = 0;
           for (const artifact of artifacts) {
             if (artifact.name !== 'DocUtils-Debug-APK' && artifact.name !== 'DocUtils-Build-Log') continue;
