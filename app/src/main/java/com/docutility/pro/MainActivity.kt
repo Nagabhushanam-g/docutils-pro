@@ -86,6 +86,7 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
+    var savedViewerItem by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
     var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
@@ -186,13 +187,22 @@ fun MainScreen(
         )
     }
 
+    savedViewerItem?.let { item ->
+        DocumentViewer(uri = item.uri, isPdf = item.isPdf, onClose = { savedViewerItem = null })
+    }
+
     fun openSaved(item: DocumentStorage.SavedItem) {
+        savedViewerItem = item
+        return
+        /*
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(item.uri, if (item.isPdf) "application/pdf" else "image/*")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         runCatching { context.startActivity(Intent.createChooser(intent, "Open document")) }
             .onFailure { Toast.makeText(context, "No compatible viewer found", Toast.LENGTH_LONG).show() }
+    }
+        */
     }
     var feedback by remember { mutableStateOf<String?>(null) }
     var compressionQuality by remember { mutableFloatStateOf(75f) }
