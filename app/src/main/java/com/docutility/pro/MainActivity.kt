@@ -23,6 +23,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.asImageBitmap
 import android.graphics.BitmapFactory
+import android.graphics.pdf.PdfRenderer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -100,6 +102,8 @@ fun MainScreen(
     var moveTarget by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
     var selectedFolder by remember { mutableStateOf<String?>(null) }
     var librarySearch by remember { mutableStateOf("") }
+    var sortNewestFirst by remember { mutableStateOf(true) }
+    var fileMenuUri by remember { mutableStateOf<String?>(null) }
     fun folderOf(uri: Uri): String = folderAssignments[uri.toString()]
         ?: libraryPrefs.getString("folder_" + uri.toString(), "")!!
     fun assignFolder(uri: Uri, folder: String) {
@@ -476,15 +480,44 @@ fun MainScreen(
                     ) { Text("$category ($count)", maxLines = 1) }
                 }
             }
-            OutlinedButton(onClick = {
-                recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
-            }, modifier = Modifier.fillMaxWidth()) { Text("Refresh Files") }
-            val visibleFiles = recentFiles.filter {
-                libraryFilter == "All" || (libraryFilter == "PDFs" && it.isPdf) ||
-                    (libraryFilter == "Images" && !it.isPdf)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { newFolderDialog = true }, modifier = Modifier.weight(1f)) { Text("+ Folder") }
+                OutlinedButton(onClick = { sortNewestFirst = !sortNewestFirst }, modifier = Modifier.weight(1f)) {
+                    Text(if (sortNewestFirst) "Newest" else "Oldest")
+                }
+                OutlinedButton(onClick = {
+                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                }, modifier = Modifier.weight(1f)) { Text("Refresh") }
             }
+            OutlinedTextField(
+                value = librarySearch,
+                onValueChange = { librarySearch = it },
+                label = { Text("Search saved files") },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth()
+            )
+            Text("Folders", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.Start))
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedButton(onClick = { selectedFolder = null }) { Text("All") }
+                folderNames.sorted().take(3).forEach { name ->
+                    TextButton(onClick = { selectedFolder = if (selectedFolder == name) null else name }) {
+                        Text(if (selectedFolder == name) "✓ $name" else name, maxLines = 1)
+                    }
+                }
+            }
+            folderNames.sorted().drop(3).forEach { name ->
+                TextButton(onClick = { selectedFolder = if (selectedFolder == name) null else name }) {
+                    Text(if (selectedFolder == name) "✓ $name" else name)
+                }
+            }
+            val visibleFiles = recentFiles.filter { item ->
+                (libraryFilter == "All" || (libraryFilter == "PDFs" && item.isPdf) ||
+                    (libraryFilter == "Images" && !item.isPdf)) &&
+                    (selectedFolder == null || folderOf(item.uri) == selectedFolder) &&
+                    item.name.contains(librarySearch.trim(), ignoreCase = true)
+            }.let { if (sortNewestFirst) it else it.reversed() }
             if (visibleFiles.isEmpty()) {
-                Text("No files in this folder yet. Scan or convert a document to add one.")
+                Text("No matching documents. Scan or convert a document to add one.")
             } else {
                 visibleFiles.forEach { item ->
                     OutlinedCard(modifier = Modifier.fillMaxWidth()) {
@@ -492,36 +525,68 @@ fun MainScreen(
                             modifier = Modifier.fillMaxWidth().padding(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (!item.isPdf) {
-                                val thumb = remember(item.uri) {
-                                    runCatching {
+                            val thumb = remember(item.uri) {
+                                runCatching {
+                                    if (item.isPdf) {
+                                        context.contentResolver.openFileDescriptor(item.uri, "r")?.use { descriptor ->
+                                            PdfRenderer(descriptor).use { renderer ->
+                                                if (renderer.pageCount > 0) {
+                                                    renderer.openPage(0).use { page ->
+                                                        val width = 110
+                                                        val height = (page.height.toFloat() * width / page.width).toInt().coerceIn(80, 160)
+                                                        val bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888)
+                                                        bitmap.eraseColor(android.graphics.Color.WHITE)
+                                                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                                        bitmap.asImageBitmap()
+                                                    }
+                                                } else null
+                                            }
+                                        }
+                                    } else {
                                         context.contentResolver.openInputStream(item.uri)?.use {
                                             BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = 12 })?.asImageBitmap()
                                         }
-                                    }.getOrNull()
-                                }
-                                if (thumb != null) Image(
-                                    bitmap = thumb,
-                                    contentDescription = "Document thumbnail",
-                                    modifier = Modifier.size(54.dp).clickable { openSaved(item) },
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else Text("PDF", style = MaterialTheme.typography.labelLarge)
-                            Spacer(Modifier.width(8.dp))
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(item.name, maxLines = 2, style = MaterialTheme.typography.bodyMedium)
-                                Text(if (item.isPdf) "PDF document" else "Scanned image", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                }.getOrNull()
                             }
-                            TextButton(onClick = { openSaved(item) }) { Text("Open") }
-                            TextButton(onClick = { moveTarget = item }) { Text("Move") }
-                            TextButton(onClick = {
-                                val share = Intent(Intent.ACTION_SEND).apply {
-                                    type = if (item.isPdf) "application/pdf" else "image/jpeg"
-                                    putExtra(Intent.EXTRA_STREAM, item.uri)
-                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            if (thumb != null) Image(
+                                bitmap = thumb,
+                                contentDescription = "Preview of ${item.name}",
+                                modifier = Modifier.size(width = 58.dp, height = 76.dp).clickable { openSaved(item) },
+                                contentScale = ContentScale.Fit
+                            ) else Text(if (item.isPdf) "PDF" else "IMG", style = MaterialTheme.typography.labelLarge)
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                                Text(if (item.isPdf) "PDF document" else "Scanned image", style = MaterialTheme.typography.bodySmall)
+                                val folder = folderOf(item.uri)
+                                if (folder.isNotEmpty()) Text("Folder: $folder", style = MaterialTheme.typography.labelSmall)
+                            }
+                            Box {
+                                TextButton(onClick = { fileMenuUri = item.uri.toString() }) { Text("⋮") }
+                                DropdownMenu(
+                                    expanded = fileMenuUri == item.uri.toString(),
+                                    onDismissRequest = { fileMenuUri = null }
+                                ) {
+                                    DropdownMenuItem(text = { Text("Open") }, onClick = {
+                                        fileMenuUri = null
+                                        openSaved(item)
+                                    })
+                                    DropdownMenuItem(text = { Text("Move to folder") }, onClick = {
+                                        fileMenuUri = null
+                                        moveTarget = item
+                                    })
+                                    DropdownMenuItem(text = { Text("Share") }, onClick = {
+                                        fileMenuUri = null
+                                        val share = Intent(Intent.ACTION_SEND).apply {
+                                            type = if (item.isPdf) "application/pdf" else "image/jpeg"
+                                            putExtra(Intent.EXTRA_STREAM, item.uri)
+                                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                        }
+                                        context.startActivity(Intent.createChooser(share, "Share file"))
+                                    })
                                 }
-                                context.startActivity(Intent.createChooser(share, "Share file"))
-                            }) { Text("Share") }
+                            }
                         }
                     }
                 }
