@@ -1,1 +1,8 @@
-<resources><style name="Theme.DocUtilsPro" parent="Theme.MaterialComponents.DayNight.NoActionBar"><item name="colorPrimary">#155E75</item><item name="colorPrimaryVariant">#164E63</item><item name="colorOnPrimary">#FFFFFF</item><item name="android:statusBarColor">#164E63</item><item name="android:windowLightStatusBar">false</item></style></resources>
+<resources>
+    <style name="Theme.DocUtilsPro" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#155E75</item>
+        <item name="android:statusBarColor">#164E63</item>
+        <item name="android:navigationBarColor">#FFFFFF</item>
+        <item name="android:windowLightStatusBar">false</item>
+    </style>
+</resources>
