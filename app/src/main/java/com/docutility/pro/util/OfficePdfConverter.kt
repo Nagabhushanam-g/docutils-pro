@@ -145,31 +145,65 @@ object OfficePdfConverter {
     }
 
     private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>) {
-        // A3 landscape with fixed-width table cells and repeatable column headers.
+        // Landscape A3, with readable cell text, wrapped rows and repeating headers.
         val width = 1191
         val height = 842
         val margin = 35f
-        val rowHeight = 28f
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 10f }
-        val border = Paint().apply { color = Color.LTGRAY; style = Paint.Style.STROKE; strokeWidth = 0.6f }
+        val top = 76f
+        val bottom = height - margin
+        val font = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 12f }
+        val headerFont = Paint(font).apply { isFakeBoldText = true }
+        val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.LTGRAY
+            style = Paint.Style.STROKE
+            strokeWidth = 0.6f
+        }
         var pageNumber = 0
         var page: PdfDocument.Page? = null
-        var y = margin
+        var y = top
+
         fun newPage(title: String) {
             page?.let { pdf.finishPage(it) }
             pageNumber++
             require(pageNumber <= 300) { "Conversion stopped: more than 300 pages. Select a smaller workbook." }
             page = pdf.startPage(PdfDocument.PageInfo.Builder(width, height, pageNumber).create())
             page!!.canvas.drawColor(Color.WHITE)
-            y = margin
-            paint.isFakeBoldText = true
-            page!!.canvas.drawText(title.take(100), margin, y + 12f, paint)
-            paint.isFakeBoldText = false
-            y += 30f
+            page!!.canvas.drawText(title.take(110), margin, 51f, headerFont)
+            y = top
         }
+
+        fun wrapCell(value: String, availableWidth: Float): List<String> {
+            val source = value.replace('\r', ' ').replace('\n', ' ').trim()
+            if (source.isEmpty()) return listOf("")
+            val lines = mutableListOf<String>()
+            var remaining = source
+            while (remaining.isNotEmpty() && lines.size < 3) {
+                val count = font.breakText(remaining, true, availableWidth, null).coerceAtLeast(1)
+                if (count >= remaining.length) {
+                    lines.add(remaining)
+                    remaining = ""
+                } else {
+                    val breakAt = remaining.lastIndexOf(' ', count - 1)
+                    val end = if (breakAt > 0) breakAt else count
+                    lines.add(remaining.substring(0, end).trimEnd())
+                    remaining = remaining.substring(end).trimStart()
+                }
+            }
+            if (remaining.isNotEmpty() && lines.isNotEmpty()) {
+                var last = lines.last()
+                while (last.isNotEmpty() && font.measureText(last + "…") > availableWidth) last = last.dropLast(1)
+                lines[lines.lastIndex] = last + "…"
+            }
+            return lines
+        }
+
         sheets.forEach { (title, rows) ->
+            if (rows.isEmpty()) {
+                newPage(title)
+                return@forEach
+            }
             val cols = (rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
-            // Wide sheets are tiled horizontally instead of shrinking text to illegibility.
+            // Limit the number of columns per tile to keep text legible.
             val columnsPerPage = 6
             val tiles = (cols + columnsPerPage - 1) / columnsPerPage
             for (tile in 0 until tiles) {
@@ -177,21 +211,32 @@ object OfficePdfConverter {
                 val count = minOf(columnsPerPage, cols - first)
                 val cellWidth = (width - 2 * margin) / count
                 val label = if (tiles == 1) title else "$title (columns ${first + 1}-${first + count})"
-                newPage(label)
-                rows.forEach { row ->
-                    if (y + rowHeight > height - margin) newPage(label)
+                val header = rows.first()
+                fun drawRow(row: List<String>, headerRow: Boolean) {
+                    val lines = (0 until count).map { i ->
+                        wrapCell(row.getOrNull(first + i).orEmpty(), cellWidth - 12f)
+                    }
+                    val rowHeight = maxOf(29f, lines.maxOf { it.size } * 17f + 12f)
                     for (i in 0 until count) {
                         val x = margin + i * cellWidth
                         page!!.canvas.drawRect(x, y, x + cellWidth, y + rowHeight, border)
-                        val cell = row.getOrNull(first + i).orEmpty().replace('\n', ' ')
-                        var visible = cell
-                        while (visible.isNotEmpty() && paint.measureText(visible) > cellWidth - 10f) {
-                            visible = visible.dropLast(1)
+                        val pen = if (headerRow) headerFont else font
+                        lines[i].forEachIndexed { lineIndex, line ->
+                            page!!.canvas.drawText(line, x + 6f, y + 17f + lineIndex * 17f, pen)
                         }
-                        if (visible.length < cell.length && visible.length > 2) visible = visible.dropLast(1) + "…"
-                        page!!.canvas.drawText(visible, x + 5f, y + 15f, paint)
                     }
                     y += rowHeight
+                }
+                newPage(label)
+                rows.forEachIndexed { rowIndex, row ->
+                    val estimated = (0 until count).maxOf { i ->
+                        wrapCell(row.getOrNull(first + i).orEmpty(), cellWidth - 12f).size
+                    } * 17f + 12f
+                    if (y + maxOf(29f, estimated) > bottom) {
+                        newPage(label)
+                        if (rowIndex > 0) drawRow(header, true)
+                    }
+                    drawRow(row, rowIndex == 0)
                 }
             }
         }
