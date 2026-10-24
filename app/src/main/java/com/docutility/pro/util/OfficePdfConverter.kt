@@ -88,47 +88,114 @@ object OfficePdfConverter {
     private fun wordLines(entries: Map<String, ByteArray>): List<String> =
         groupedText(entries["word/document.xml"] ?: error("Invalid DOCX file"), "p", "t")
 
-    private fun excelLines(entries: Map<String, ByteArray>): List<String> {
+    private fun excelRows(entries: Map<String, ByteArray>): List<Pair<String, List<List<String>>>> {
         val strings = entries["xl/sharedStrings.xml"]?.let { groupedText(it, "si", "t") }.orEmpty()
-        val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+\\.xml").matches(it) }.sorted()
+        val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+\\\\.xml").matches(it) }
+            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
         require(sheets.isNotEmpty()) { "No Excel worksheets found" }
-        val lines = mutableListOf<String>()
-        sheets.forEachIndexed { index, name ->
-            lines.add("Worksheet ${index + 1}")
+        return sheets.mapIndexed { index, name ->
+            val rows = mutableListOf<List<String>>()
             val parser = xmlParser(entries.getValue(name))
-            var row = mutableListOf<String>()
-            var inCell = false
+            var cells = sortedMapOf<Int, String>()
+            var nextColumn = 0
+            var column = 0
             var cellType = ""
             var value = StringBuilder()
-            var readingValue = false
+            var reading = false
+            var inCell = false
             while (true) {
                 val event = parser.next()
                 if (event == XmlPullParser.END_DOCUMENT) break
                 when (event) {
                     XmlPullParser.START_TAG -> when (parser.name) {
-                        "row" -> row = mutableListOf()
+                        "row" -> { cells = sortedMapOf(); nextColumn = 0 }
                         "c" -> {
                             inCell = true
                             cellType = parser.getAttributeValue(null, "t").orEmpty()
+                            val ref = parser.getAttributeValue(null, "r").orEmpty()
+                            val letters = ref.takeWhile { it.isLetter() }.uppercase()
+                            column = if (letters.isEmpty()) nextColumn else
+                                letters.fold(0) { n, c -> n * 26 + (c - 'A' + 1) } - 1
+                            nextColumn = column + 1
                             value = StringBuilder()
                         }
-                        "v", "t" -> if (inCell) readingValue = true
+                        "v", "t" -> if (inCell) reading = true
                     }
-                    XmlPullParser.TEXT -> if (readingValue) value.append(parser.text)
+                    XmlPullParser.TEXT -> if (reading) value.append(parser.text)
                     XmlPullParser.END_TAG -> when (parser.name) {
-                        "v", "t" -> readingValue = false
+                        "v", "t" -> reading = false
                         "c" -> {
                             val raw = value.toString()
-                            row.add(if (cellType == "s") strings.getOrNull(raw.toIntOrNull() ?: -1).orEmpty() else raw)
+                            val text = if (cellType == "s") strings.getOrNull(raw.toIntOrNull() ?: -1).orEmpty() else raw
+                            if (text.isNotBlank() && column in 0..255) cells[column] = text
                             inCell = false
                         }
-                        "row" -> lines.add(row.joinToString(" | "))
+                        "row" -> {
+                            if (cells.isNotEmpty()) {
+                                val max = cells.lastKey().coerceAtMost(255)
+                                rows.add((0..max).map { cells[it].orEmpty() })
+                            }
+                        }
                     }
                 }
+                require(rows.size <= 20000) { "Worksheet exceeds the 20,000 non-empty row limit" }
             }
-            lines.add("")
+            "Worksheet ${index + 1}" to rows
         }
-        return lines
+    }
+
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>) {
+        // A3 landscape with fixed-width table cells and repeatable column headers.
+        val width = 1191
+        val height = 842
+        val margin = 35f
+        val rowHeight = 23f
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 10f }
+        val border = Paint().apply { color = Color.LTGRAY; style = Paint.Style.STROKE; strokeWidth = 0.6f }
+        var pageNumber = 0
+        var page: PdfDocument.Page? = null
+        var y = margin
+        fun newPage(title: String) {
+            page?.let { pdf.finishPage(it) }
+            pageNumber++
+            require(pageNumber <= 300) { "Conversion stopped: more than 300 pages. Select a smaller workbook." }
+            page = pdf.startPage(PdfDocument.PageInfo.Builder(width, height, pageNumber).create())
+            page!!.canvas.drawColor(Color.WHITE)
+            y = margin
+            paint.isFakeBoldText = true
+            page!!.canvas.drawText(title.take(100), margin, y + 12f, paint)
+            paint.isFakeBoldText = false
+            y += 30f
+        }
+        sheets.forEach { (title, rows) ->
+            val cols = (rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
+            // Wide sheets are tiled horizontally instead of shrinking text to illegibility.
+            val columnsPerPage = 8
+            val tiles = (cols + columnsPerPage - 1) / columnsPerPage
+            for (tile in 0 until tiles) {
+                val first = tile * columnsPerPage
+                val count = minOf(columnsPerPage, cols - first)
+                val cellWidth = (width - 2 * margin) / count
+                val label = if (tiles == 1) title else "$title (columns ${first + 1}-${first + count})"
+                newPage(label)
+                rows.forEach { row ->
+                    if (y + rowHeight > height - margin) newPage(label)
+                    for (i in 0 until count) {
+                        val x = margin + i * cellWidth
+                        page!!.canvas.drawRect(x, y, x + cellWidth, y + rowHeight, border)
+                        val cell = row.getOrNull(first + i).orEmpty().replace('\\n', ' ')
+                        var visible = cell
+                        while (visible.isNotEmpty() && paint.measureText(visible) > cellWidth - 10f) {
+                            visible = visible.dropLast(1)
+                        }
+                        if (visible.length < cell.length && visible.length > 2) visible = visible.dropLast(1) + "…"
+                        page!!.canvas.drawText(visible, x + 5f, y + 15f, paint)
+                    }
+                    y += rowHeight
+                }
+            }
+        }
+        page?.let { pdf.finishPage(it) }
     }
 
     suspend fun convert(context: Context, uri: Uri, filename: String): Result<Uri> =
@@ -139,8 +206,8 @@ object OfficePdfConverter {
                     "Basic conversion supports DOCX and XLSX only"
                 }
                 val entries = zipEntries(context, uri)
-                val lines = if (extension == "docx") wordLines(entries) else excelLines(entries)
-                require(lines.isNotEmpty()) { "Document has no readable content" }
+                val lines = if (extension == "docx") wordLines(entries) else emptyList()
+                if (extension == "docx") require(lines.isNotEmpty()) { "Document has no readable content" }
                 val pdf = PdfDocument()
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 11f }
                 val width = 595
@@ -161,6 +228,9 @@ object OfficePdfConverter {
                     y += 17f
                 }
                 try {
+                    if (extension == "xlsx") {
+                        renderExcel(pdf, excelRows(entries))
+                    } else {
                     startPage()
                     lines.forEach { line ->
                         if (line.isBlank()) { drawLine(" "); return@forEach }
@@ -172,6 +242,7 @@ object OfficePdfConverter {
                         }
                     }
                     page?.let { pdf.finishPage(it) }
+                    }
                     val stem = filename.substringBeforeLast('.').replace(Regex("[^A-Za-z0-9 _-]"), "_").take(50)
                     val temp = File(context.cacheDir, "${stem}_converted_${System.currentTimeMillis()}.pdf")
                     temp.outputStream().use { pdf.writeTo(it) }
