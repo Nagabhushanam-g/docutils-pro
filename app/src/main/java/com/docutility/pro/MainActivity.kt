@@ -85,6 +85,7 @@ fun MainScreen(
     }
     var feedback by remember { mutableStateOf<String?>(null) }
     var compressionQuality by remember { mutableFloatStateOf(75f) }
+    var documentName by remember { mutableStateOf("Document") }
     val savePdf = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/pdf")
     ) { destination ->
@@ -166,6 +167,21 @@ fun MainScreen(
 
             Text("Convert photos to a PDF, then save or share it.")
             if (selectedUris.isNotEmpty()) {
+                OutlinedTextField(
+                    value = documentName,
+                    onValueChange = { documentName = it.take(60) },
+                    label = { Text("PDF filename") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                Text("Compression preset")
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf("Small" to 50f, "Balanced" to 75f, "High" to 95f).forEach { (label, quality) ->
+                        OutlinedButton(onClick = { compressionQuality = quality }, modifier = Modifier.weight(1f)) {
+                            Text(label)
+                        }
+                    }
+                }
                 Text("JPEG image quality: ${compressionQuality.toInt()}%")
                 Slider(
                     value = compressionQuality,
@@ -175,7 +191,10 @@ fun MainScreen(
                 Button(
                     onClick = {
                         isProcessing = true
-                        val outputFile = File(context.cacheDir, "Document_${System.currentTimeMillis()}.pdf")
+                        val safeName = documentName.trim().removeSuffix(".pdf")
+                            .replace(Regex("[^a-zA-Z0-9 _-]"), "_")
+                            .trim().ifEmpty { "Document" }
+                        val outputFile = File(context.cacheDir, "${safeName}_${System.currentTimeMillis()}.pdf")
 
                         coroutineScope.launch {
                             val result = PdfProcessor.convertImagesToPdf(
