@@ -16,6 +16,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -82,6 +83,7 @@ fun MainScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var previewUri by remember { mutableStateOf<Uri?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
     var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
@@ -157,6 +159,29 @@ fun MainScreen(
         } else {
             selectedUris = uris
         }
+    }
+
+    previewUri?.let { uri ->
+        AlertDialog(
+            onDismissRequest = { previewUri = null },
+            title = { Text("Document preview") },
+            text = {
+                val bitmap = remember(uri) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { stream ->
+                            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 2 })?.asImageBitmap()
+                        }
+                    }.getOrNull()
+                }
+                if (bitmap != null) Image(
+                    bitmap = bitmap,
+                    contentDescription = "Full document preview",
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 550.dp),
+                    contentScale = ContentScale.Fit
+                ) else Text("Preview unavailable")
+            },
+            confirmButton = { TextButton(onClick = { previewUri = null }) { Text("Close") } }
+        )
     }
 
     Scaffold(
@@ -257,13 +282,13 @@ fun MainScreen(
                                 Image(
                                     bitmap = preview,
                                     contentDescription = "Page ${index + 1} preview",
-                                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                                    modifier = Modifier.fillMaxWidth().height(180.dp).clickable { previewUri = uri },
                                     contentScale = ContentScale.Fit
                                 )
                             } else {
                                 Text("Preview unavailable")
                             }
-                            Text("Page ${index + 1}")
+                            Text("Page ${index + 1} • Tap to preview")
                             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                 TextButton(onClick = {
                                     if (index > 0) {
@@ -295,7 +320,7 @@ fun MainScreen(
                 )
                 Text("PDF image appearance", style = MaterialTheme.typography.titleMedium)
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf(ScanAppearance.ORIGINAL to "Original", ScanAppearance.ENHANCED to "Enhanced", ScanAppearance.BLACK_AND_WHITE to "B&W").forEach { (mode, label) ->
+                    listOf(ScanAppearance.ORIGINAL to "Original", ScanAppearance.ENHANCED to "Enhance", ScanAppearance.BLACK_AND_WHITE to "B&W").forEach { (mode, label) ->
                         if (scanAppearance == mode) Button(onClick = { scanAppearance = mode }, modifier = Modifier.weight(1f)) { Text(label) }
                         else OutlinedButton(onClick = { scanAppearance = mode }, modifier = Modifier.weight(1f)) { Text(label) }
                     }
