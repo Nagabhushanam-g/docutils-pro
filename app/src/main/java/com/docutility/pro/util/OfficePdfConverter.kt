@@ -38,7 +38,9 @@ object OfficePdfConverter {
         }
         val factory = DocumentBuilderFactory.newInstance()
         factory.isNamespaceAware = true
-        factory.isXIncludeAware = false
+        // Android's bundled DOM parser can throw UnsupportedOperationException
+        // when setXIncludeAware(false) is called, even though XInclude is not
+        // enabled by default. Avoid that unsupported setter entirely.
         factory.isExpandEntityReferences = false
         val builder = factory.newDocumentBuilder()
         builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
