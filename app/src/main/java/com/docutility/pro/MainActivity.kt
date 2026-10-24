@@ -89,6 +89,60 @@ fun MainScreen(
     var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
     var recentFiles by remember { mutableStateOf(runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(emptyList())) }
     var libraryFilter by remember { mutableStateOf("All") }
+    // Folder assignments are local library labels; original files stay in public storage.
+    val libraryPrefs = remember { context.getSharedPreferences("docutils_library", android.content.Context.MODE_PRIVATE) }
+    var folderNames by remember {
+        mutableStateOf(libraryPrefs.getStringSet("folders", setOf("Bills", "ID Cards", "Personal"))!!.toSet())
+    }
+    var folderAssignments by remember { mutableStateOf(emptyMap<String, String>()) }
+    var newFolderDialog by remember { mutableStateOf(false) }
+    var folderDraft by remember { mutableStateOf("") }
+    var moveTarget by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
+    var selectedFolder by remember { mutableStateOf<String?>(null) }
+    var librarySearch by remember { mutableStateOf("") }
+    fun folderOf(uri: Uri): String = folderAssignments[uri.toString()]
+        ?: libraryPrefs.getString("folder_" + uri.toString(), "")!!
+    fun assignFolder(uri: Uri, folder: String) {
+        libraryPrefs.edit().putString("folder_" + uri.toString(), folder).apply()
+        folderAssignments = folderAssignments + (uri.toString() to folder)
+    }
+    if (newFolderDialog) {
+        AlertDialog(
+            onDismissRequest = { newFolderDialog = false },
+            title = { Text("Create Folder") },
+            text = { OutlinedTextField(value = folderDraft, onValueChange = { folderDraft = it }, label = { Text("Folder name") }) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val name = folderDraft.trim()
+                    if (name.isNotEmpty() && name.length <= 40 && name !in folderNames) {
+                        folderNames = folderNames + name
+                        libraryPrefs.edit().putStringSet("folders", folderNames).apply()
+                    }
+                    newFolderDialog = false
+                    folderDraft = ""
+                }) { Text("Create") }
+            },
+            dismissButton = { TextButton(onClick = { newFolderDialog = false }) { Text("Cancel") } }
+        )
+    }
+    moveTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { moveTarget = null },
+            title = { Text("Organize in folder") },
+            text = {
+                Column {
+                    (listOf("Unfiled") + folderNames.sorted()).forEach { name ->
+                        TextButton(onClick = {
+                            assignFolder(target.uri, if (name == "Unfiled") "" else name)
+                            moveTarget = null
+                        }) { Text(name) }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { moveTarget = null }) { Text("Close") } }
+        )
+    }
+
     fun openSaved(item: DocumentStorage.SavedItem) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(item.uri, if (item.isPdf) "application/pdf" else "image/*")
@@ -458,7 +512,7 @@ fun MainScreen(
                                 Text(item.name, maxLines = 2, style = MaterialTheme.typography.bodyMedium)
                                 Text(if (item.isPdf) "PDF document" else "Scanned image", style = MaterialTheme.typography.bodySmall)
                             }
-                            TextButton(onClick = { openSaved(item) }) { Text("Open") }
+                            TextButton(onClick = { openSaved(item) }) { Text("Open") }\n                            TextButton(onClick = { moveTarget = item }) { Text("Move") }
                             TextButton(onClick = {
                                 val share = Intent(Intent.ACTION_SEND).apply {
                                     type = if (item.isPdf) "application/pdf" else "image/jpeg"
