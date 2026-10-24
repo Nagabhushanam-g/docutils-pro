@@ -35,6 +35,9 @@ import androidx.core.content.FileProvider
 import com.docutility.pro.monetization.AdManager
 import com.docutility.pro.monetization.BillingManager
 import com.docutility.pro.util.PdfProcessor
+import com.docutility.pro.util.DocumentStorage
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
@@ -80,6 +83,7 @@ fun MainScreen(
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
+    var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
     var recentPdfs by remember {
         mutableStateOf(context.cacheDir.listFiles()
             ?.filter { it.isFile && it.extension.equals("pdf", ignoreCase = true) }
@@ -98,22 +102,6 @@ fun MainScreen(
     var feedback by remember { mutableStateOf<String?>(null) }
     var compressionQuality by remember { mutableFloatStateOf(75f) }
     var documentName by remember { mutableStateOf("Document") }
-    val savePdf = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.CreateDocument("application/pdf")
-    ) { destination ->
-        val file = latestPdf
-        if (destination != null && file != null) {
-            runCatching {
-                context.contentResolver.openOutputStream(destination)?.use { output ->
-                    file.inputStream().use { input -> input.copyTo(output) }
-                } ?: error("Cannot open destination")
-            }.onSuccess {
-                Toast.makeText(context, "PDF saved successfully", Toast.LENGTH_LONG).show()
-            }.onFailure {
-                Toast.makeText(context, "Unable to save PDF", Toast.LENGTH_LONG).show()
-            }
-        }
-    }
     fun pdfUri(file: File): Uri =
         FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
 
@@ -125,8 +113,9 @@ fun MainScreen(
             val pages = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
                 ?.pages?.map { it.imageUri }.orEmpty()
             val allowed = if (isProUser) pages.size else (5 - selectedUris.size).coerceAtLeast(0)
-            selectedUris = selectedUris + pages.take(allowed)
-            feedback = "${pages.take(allowed).size} cropped page(s) added"
+            val saved = pages.take(allowed).mapNotNull { runCatching { DocumentStorage.saveScannedImage(context, it) }.getOrNull() }
+            selectedUris = selectedUris + saved
+            feedback = "${saved.size} cropped image(s) saved to Pictures/DocUtils Pro"
         }
     }
 
@@ -137,8 +126,10 @@ fun MainScreen(
         if (captured) {
             pendingCameraUri?.let { uri ->
                 if (isProUser || selectedUris.size < 5) {
-                    selectedUris = selectedUris + uri
-                    feedback = "Photo captured. ${selectedUris.size} image(s) ready."
+                    runCatching { DocumentStorage.saveScannedImage(context, uri) }.onSuccess { saved ->
+                        selectedUris = selectedUris + saved
+                        feedback = "Photo saved to Pictures/DocUtils Pro"
+                    }.onFailure { Toast.makeText(context, "Unable to save photo", Toast.LENGTH_LONG).show() }
                 } else {
                     Toast.makeText(context, "Free tier limit: 5 images", Toast.LENGTH_LONG).show()
                 }
@@ -338,9 +329,15 @@ fun MainScreen(
                             isProcessing = false
 
                             result.onSuccess { file ->
+                                val saved = withContext(Dispatchers.IO) { runCatching { DocumentStorage.savePdf(context, file) } }
+                                if (saved.isFailure) {
+                                    feedback = "PDF created but automatic save failed"
+                                    return@onSuccess
+                                }
+                                latestSavedPdfUri = saved.getOrNull()
                                 latestPdf = file
                                 recentPdfs = (listOf(file) + recentPdfs).distinctBy { it.absolutePath }.take(10)
-                                feedback = "PDF ready • ${selectedUris.size} page(s) • ${file.length() / 1024} KB"
+                                feedback = "Saved to Documents/DocUtils Pro • ${selectedUris.size} page(s) • ${file.length() / 1024} KB"
                                 // Show interstitial ad before triggering share/view intent
                                 onShowAd {
                                     val uri = pdfUri(file)
@@ -362,6 +359,16 @@ fun MainScreen(
                     Text(if (isProcessing) "Converting..." else "Convert to Compressed PDF")
                 }
             }
+            if (selectedUris.isNotEmpty()) {
+                OutlinedButton(onClick = {
+                    val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                        type = "image/*"
+                        putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(selectedUris))
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(intent, "Share Images"))
+                }, modifier = Modifier.fillMaxWidth()) { Text("Share Images") }
+            }
             if (recentPdfs.isNotEmpty()) {
                 HorizontalDivider()
                 Text("Recent PDFs", style = MaterialTheme.typography.titleMedium)
@@ -382,16 +389,12 @@ fun MainScreen(
             }
             feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             latestPdf?.let { file ->
-                Button(
-                    modifier = Modifier.fillMaxWidth(),
-                    onClick = { savePdf.launch(file.name) }
-                ) { Text("Save PDF to device") }
                 OutlinedButton(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = {
                         val intent = Intent(Intent.ACTION_SEND).apply {
                             type = "application/pdf"
-                            putExtra(Intent.EXTRA_STREAM, pdfUri(file))
+                            putExtra(Intent.EXTRA_STREAM, latestSavedPdfUri ?: pdfUri(file))
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
                         context.startActivity(Intent.createChooser(intent, "Share PDF"))
