@@ -183,7 +183,7 @@ object OfficePdfConverter {
                     for (i in 0 until count) {
                         val x = margin + i * cellWidth
                         page!!.canvas.drawRect(x, y, x + cellWidth, y + rowHeight, border)
-                        val cell = row.getOrNull(first + i).orEmpty().replace('\\n', ' ')
+                        val cell = row.getOrNull(first + i).orEmpty().replace('\n', ' ')
                         var visible = cell
                         while (visible.isNotEmpty() && paint.measureText(visible) > cellWidth - 10f) {
                             visible = visible.dropLast(1)
