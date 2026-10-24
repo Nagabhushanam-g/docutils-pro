@@ -72,9 +72,20 @@ object OfficePdfConverter {
                 var total = 0L
                 while (entry != null) {
                     if (!entry.isDirectory && (entry.name.startsWith("word/") || entry.name.startsWith("xl/"))) {
-                        val bytes = zip.readBytes()
-                        total += bytes.size
-                        require(total <= 24L * 1024 * 1024) { "Document too large" }
+                        val output = java.io.ByteArrayOutputStream()
+                        val buffer = ByteArray(16384)
+                        var entrySize = 0L
+                        while (true) {
+                            val count = zip.read(buffer)
+                            if (count == -1) break
+                            entrySize += count
+                            total += count
+                            require(entrySize <= 48L * 1024 * 1024 && total <= 96L * 1024 * 1024) {
+                                "Workbook exceeds safe conversion limits. Please split the workbook."
+                            }
+                            output.write(buffer, 0, count)
+                        }
+                        val bytes = output.toByteArray()
                         result[entry.name] = bytes
                     }
                     zip.closeEntry()
