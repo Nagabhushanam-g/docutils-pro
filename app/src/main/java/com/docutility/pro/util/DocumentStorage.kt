@@ -1,6 +1,7 @@
 package com.docutility.pro.util
 
 import android.content.ContentValues
+import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
 import android.os.Environment
@@ -56,5 +57,36 @@ object DocumentStorage {
             resolver.delete(uri, null, null)
             throw e
         }
+    }
+
+    data class SavedItem(val uri: Uri, val name: String, val isPdf: Boolean)
+
+    fun recentFiles(context: Context, limit: Int = 30): List<SavedItem> {
+        val resolver = context.contentResolver
+        val results = mutableListOf<SavedItem>()
+        val collection = MediaStore.Files.getContentUri("external")
+        val columns = arrayOf(
+            MediaStore.Files.FileColumns._ID,
+            MediaStore.MediaColumns.DISPLAY_NAME,
+            MediaStore.MediaColumns.MIME_TYPE,
+            MediaStore.MediaColumns.RELATIVE_PATH
+        )
+        val selection = "${MediaStore.MediaColumns.RELATIVE_PATH}=? OR ${MediaStore.MediaColumns.RELATIVE_PATH}=?"
+        val args = arrayOf("Documents/DocUtils Pro/", "Pictures/DocUtils Pro/")
+        resolver.query(collection, columns, selection, args, "${MediaStore.MediaColumns.DATE_ADDED} DESC")?.use { cursor ->
+            val idColumn = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val nameColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.DISPLAY_NAME)
+            val mimeColumn = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns.MIME_TYPE)
+            while (cursor.moveToNext() && results.size < limit) {
+                val mime = cursor.getString(mimeColumn) ?: continue
+                if (mime != "application/pdf" && !mime.startsWith("image/")) continue
+                results.add(SavedItem(
+                    ContentUris.withAppendedId(collection, cursor.getLong(idColumn)),
+                    cursor.getString(nameColumn) ?: "Document",
+                    mime == "application/pdf"
+                ))
+            }
+        }
+        return results
     }
 }
