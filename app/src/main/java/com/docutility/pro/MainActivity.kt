@@ -496,18 +496,19 @@ fun MainScreen(
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth()
             )
-            Text("Folders", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.Start))
+            Text("Folders (${folderNames.size})", style = MaterialTheme.typography.titleMedium, modifier = Modifier.align(Alignment.Start))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                OutlinedButton(onClick = { selectedFolder = null }) { Text("All") }
+                if (selectedFolder == null) Button(onClick = { selectedFolder = null }) { Text("All (${recentFiles.size})") }
+                else OutlinedButton(onClick = { selectedFolder = null }) { Text("All (${recentFiles.size})") }
                 folderNames.sorted().take(3).forEach { name ->
                     TextButton(onClick = { selectedFolder = if (selectedFolder == name) null else name }) {
-                        Text(if (selectedFolder == name) "✓ $name" else name, maxLines = 1)
+                        Text("${if (selectedFolder == name) "✓ " else ""}$name (${recentFiles.count { folderOf(it.uri) == name }})", maxLines = 1)
                     }
                 }
             }
             folderNames.sorted().drop(3).forEach { name ->
                 TextButton(onClick = { selectedFolder = if (selectedFolder == name) null else name }) {
-                    Text(if (selectedFolder == name) "✓ $name" else name)
+                    Text("${if (selectedFolder == name) "✓ " else ""}$name (${recentFiles.count { folderOf(it.uri) == name }})")
                 }
             }
             val visibleFiles = recentFiles.filter { item ->
@@ -559,6 +560,7 @@ fun MainScreen(
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(item.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
                                 Text(if (item.isPdf) "PDF document" else "Scanned image", style = MaterialTheme.typography.bodySmall)
+                                Text(if (item.isPdf) "PDF" else "IMAGE", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelSmall)
                                 val folder = folderOf(item.uri)
                                 if (folder.isNotEmpty()) Text("Folder: $folder", style = MaterialTheme.typography.labelSmall)
                             }
