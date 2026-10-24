@@ -1,6 +1,8 @@
 package com.docutility.pro
 
 import android.content.Intent
+import android.Manifest
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
@@ -106,6 +108,35 @@ fun MainScreen(
         FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
 
 
+    var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
+    val cameraCapture = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicture()
+    ) { captured ->
+        if (captured) {
+            pendingCameraUri?.let { uri ->
+                if (isProUser || selectedUris.size < 5) {
+                    selectedUris = selectedUris + uri
+                    feedback = "Photo captured. ${selectedUris.size} image(s) ready."
+                } else {
+                    Toast.makeText(context, "Free tier limit: 5 images", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+        pendingCameraUri = null
+    }
+    val cameraPermission = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            val photo = File(context.cacheDir, "Scan_${System.currentTimeMillis()}.jpg")
+            val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photo)
+            pendingCameraUri = uri
+            cameraCapture.launch(uri)
+        } else {
+            Toast.makeText(context, "Camera permission is required to scan", Toast.LENGTH_LONG).show()
+        }
+    }
+
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(100)
     ) { uris ->
@@ -165,7 +196,21 @@ fun MainScreen(
                 Text("Select Images (${selectedUris.size} selected)")
             }
 
-            Text("Convert photos to a PDF, then save or share it.")
+            OutlinedButton(
+                onClick = {
+                    if (context.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+                        val photo = File(context.cacheDir, "Scan_${System.currentTimeMillis()}.jpg")
+                        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", photo)
+                        pendingCameraUri = uri
+                        cameraCapture.launch(uri)
+                    } else {
+                        cameraPermission.launch(Manifest.permission.CAMERA)
+                    }
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Scan with Camera") }
+
+            Text("Capture documents or select photos, then convert them into a PDF.")
             if (selectedUris.isNotEmpty()) {
                 OutlinedTextField(
                     value = documentName,
