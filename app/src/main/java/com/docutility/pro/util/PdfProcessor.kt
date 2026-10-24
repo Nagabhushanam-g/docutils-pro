@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
@@ -14,6 +16,8 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 
+enum class ScanAppearance { ORIGINAL, ENHANCED, BLACK_AND_WHITE }
+
 object PdfProcessor {
 
     suspend fun convertImagesToPdf(
@@ -21,6 +25,7 @@ object PdfProcessor {
         imageUris: List<Uri>,
         outputFile: File,
         compressionQuality: Int = 80, // 0 to 100 for compression
+        appearance: ScanAppearance = ScanAppearance.ORIGINAL,
         watermarkText: String? = null
     ): Result<File> = withContext(Dispatchers.IO) {
         runCatching {
@@ -32,7 +37,25 @@ object PdfProcessor {
 
                     // Optional compression via JPEG re-encoding
                     val compressedStream = ByteArrayOutputStream()
-                    originalBitmap.compress(Bitmap.CompressFormat.JPEG, compressionQuality, compressedStream)
+                    val adjustedBitmap = if (appearance == ScanAppearance.ORIGINAL) originalBitmap else {
+                        val adjusted = Bitmap.createBitmap(originalBitmap.width, originalBitmap.height, Bitmap.Config.ARGB_8888)
+                        val matrix = if (appearance == ScanAppearance.BLACK_AND_WHITE) {
+                            ColorMatrix().apply { setSaturation(0f) }
+                        } else {
+                            // Gentle contrast only; avoid clipping pale handwriting and paper highlights.
+                            ColorMatrix(floatArrayOf(
+                                1.06f, 0f, 0f, 0f, -7f,
+                                0f, 1.06f, 0f, 0f, -7f,
+                                0f, 0f, 1.06f, 0f, -7f,
+                                0f, 0f, 0f, 1f, 0f
+                            ))
+                        }
+                        Canvas(adjusted).drawBitmap(originalBitmap, 0f, 0f, Paint(Paint.FILTER_BITMAP_FLAG).apply {
+                            colorFilter = ColorMatrixColorFilter(matrix)
+                        })
+                        adjusted
+                    }
+                    adjustedBitmap.compress(Bitmap.CompressFormat.JPEG, compressionQuality, compressedStream)
                     val compressedBytes = compressedStream.toByteArray()
                     val bitmap = BitmapFactory.decodeByteArray(compressedBytes, 0, compressedBytes.size)
 
@@ -72,6 +95,7 @@ object PdfProcessor {
 
                     pdfDoc.finishPage(page)
                     bitmap.recycle()
+                    if (adjustedBitmap !== originalBitmap) adjustedBitmap.recycle()
                     originalBitmap.recycle()
                 }
             }
