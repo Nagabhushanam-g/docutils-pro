@@ -100,6 +100,9 @@ fun MainScreen(
     var newFolderDialog by remember { mutableStateOf(false) }
     var folderDraft by remember { mutableStateOf("") }
     var moveTarget by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
+    var renameTarget by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
+    var renameDraft by remember { mutableStateOf("") }
+    var deleteTarget by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
     var selectedFolder by remember { mutableStateOf<String?>(null) }
     var librarySearch by remember { mutableStateOf("") }
     var sortNewestFirst by remember { mutableStateOf(true) }
@@ -127,6 +130,42 @@ fun MainScreen(
                 }) { Text("Create") }
             },
             dismissButton = { TextButton(onClick = { newFolderDialog = false }) { Text("Cancel") } }
+        )
+    }
+    renameTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { renameTarget = null },
+            title = { Text("Rename document") },
+            text = { OutlinedTextField(value = renameDraft, onValueChange = { renameDraft = it.take(100) }, label = { Text("Filename (without extension)") }, singleLine = true) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ok = runCatching { DocumentStorage.rename(context, target, renameDraft) }.getOrDefault(false)
+                    Toast.makeText(context, if (ok) "Document renamed" else "Unable to rename document", Toast.LENGTH_LONG).show()
+                    if (ok) recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                    renameTarget = null
+                }, enabled = renameDraft.isNotBlank()) { Text("Rename") }
+            },
+            dismissButton = { TextButton(onClick = { renameTarget = null }) { Text("Cancel") } }
+        )
+    }
+    deleteTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteTarget = null },
+            title = { Text("Delete document?") },
+            text = { Text("Permanently delete ${target.name}? This cannot be undone.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    val ok = runCatching { DocumentStorage.delete(context, target) }.getOrDefault(false)
+                    if (ok) {
+                        libraryPrefs.edit().remove("folder_" + target.uri.toString()).apply()
+                        folderAssignments = folderAssignments - target.uri.toString()
+                        recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles.filterNot { it.uri == target.uri })
+                    }
+                    Toast.makeText(context, if (ok) "Document deleted" else "Unable to delete document", Toast.LENGTH_LONG).show()
+                    deleteTarget = null
+                }) { Text("Delete") }
+            },
+            dismissButton = { TextButton(onClick = { deleteTarget = null }) { Text("Cancel") } }
         )
     }
     moveTarget?.let { target ->
@@ -573,6 +612,15 @@ fun MainScreen(
                                     DropdownMenuItem(text = { Text("Open") }, onClick = {
                                         fileMenuUri = null
                                         openSaved(item)
+                                    })
+                                    DropdownMenuItem(text = { Text("Rename") }, onClick = {
+                                        fileMenuUri = null
+                                        renameTarget = item
+                                        renameDraft = item.name.substringBeforeLast(".")
+                                    })
+                                    DropdownMenuItem(text = { Text("Delete") }, onClick = {
+                                        fileMenuUri = null
+                                        deleteTarget = item
                                     })
                                     DropdownMenuItem(text = { Text("Move to folder") }, onClick = {
                                         fileMenuUri = null
