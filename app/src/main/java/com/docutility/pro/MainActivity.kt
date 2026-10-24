@@ -40,6 +40,7 @@ import com.docutility.pro.monetization.BillingManager
 import com.docutility.pro.util.ScanAppearance
 import com.docutility.pro.util.PdfProcessor
 import com.docutility.pro.util.DocumentStorage
+import com.docutility.pro.util.OfficePdfConverter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import com.google.android.gms.ads.AdRequest
@@ -207,10 +208,28 @@ fun MainScreen(
                 Column {
                     Text(officeName)
                     Spacer(Modifier.height(8.dp))
-                    Text("File selection is ready. PDF conversion will be available after Word layout and Excel table rendering are implemented and verified.")
+                    Text("Basic offline conversion: paragraphs and cell values only. Original formatting, images, formulas and precise tables may not be preserved. DOCX/XLSX only.")
                 }
             },
-            confirmButton = { TextButton(onClick = { officeUri = null }) { Text("OK") } }
+            confirmButton = {
+                TextButton(onClick = {
+                    val source = officeUri ?: return@TextButton
+                    val name = officeName
+                    officeUri = null
+                    coroutineScope.launch {
+                        isProcessing = true
+                        val result = OfficePdfConverter.convert(context, source, name)
+                        isProcessing = false
+                        result.onSuccess { saved ->
+                            recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                            Toast.makeText(context, "Basic PDF saved to Documents/DocUtils Pro", Toast.LENGTH_LONG).show()
+                        }.onFailure { error ->
+                            Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
+                        }
+                    }
+                }, enabled = !isProcessing && (officeName.endsWith(".docx", true) || officeName.endsWith(".xlsx", true))) { Text("Convert (basic)") }
+            },
+            dismissButton = { TextButton(onClick = { officeUri = null }) { Text("Cancel") } }
         )
     }
     savedViewerItem?.let { item ->
