@@ -87,7 +87,8 @@ fun MainScreen(
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
     var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
-    var recentFiles by remember { mutableStateOf(runCatching { DocumentStorage.recentFiles(context) }.getOrDefault(emptyList())) }
+    var recentFiles by remember { mutableStateOf(runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(emptyList())) }
+    var libraryFilter by remember { mutableStateOf("All") }
     fun openSaved(item: DocumentStorage.SavedItem) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(item.uri, if (item.isPdf) "application/pdf" else "image/*")
@@ -114,7 +115,7 @@ fun MainScreen(
             val saved = pages.take(allowed).mapNotNull { runCatching { DocumentStorage.saveScannedImage(context, it) }.getOrNull() }
             selectedUris = selectedUris + saved
             feedback = "${saved.size} cropped image(s) saved to Pictures/DocUtils Pro"
-            recentFiles = runCatching { DocumentStorage.recentFiles(context) }.getOrDefault(recentFiles)
+            recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
         }
     }
 
@@ -401,15 +402,72 @@ fun MainScreen(
                     context.startActivity(Intent.createChooser(intent, "Share Images"))
                 }, modifier = Modifier.fillMaxWidth()) { Text("Share Images") }
             }
-            if (recentFiles.isNotEmpty()) {
-                HorizontalDivider()
-                Text("Recent Files", style = MaterialTheme.typography.titleMedium)
-                recentFiles.forEach { item ->
-                    OutlinedButton(
-                        onClick = { openSaved(item) },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text((if (item.isPdf) "PDF • " else "Image • ") + item.name, maxLines = 1)
+            HorizontalDivider()
+            Text("My Files & Folders", style = MaterialTheme.typography.titleLarge)
+            Text("Automatically saved to Documents/DocUtils Pro and Pictures/DocUtils Pro", style = MaterialTheme.typography.bodySmall)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("All", "PDFs", "Images").forEach { category ->
+                    val count = when (category) {
+                        "PDFs" -> recentFiles.count { it.isPdf }
+                        "Images" -> recentFiles.count { !it.isPdf }
+                        else -> recentFiles.size
+                    }
+                    if (libraryFilter == category) Button(
+                        onClick = { libraryFilter = category },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("$category ($count)", maxLines = 1) }
+                    else OutlinedButton(
+                        onClick = { libraryFilter = category },
+                        modifier = Modifier.weight(1f)
+                    ) { Text("$category ($count)", maxLines = 1) }
+                }
+            }
+            OutlinedButton(onClick = {
+                recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+            }, modifier = Modifier.fillMaxWidth()) { Text("Refresh Files") }
+            val visibleFiles = recentFiles.filter {
+                libraryFilter == "All" || (libraryFilter == "PDFs" && it.isPdf) ||
+                    (libraryFilter == "Images" && !it.isPdf)
+            }
+            if (visibleFiles.isEmpty()) {
+                Text("No files in this folder yet. Scan or convert a document to add one.")
+            } else {
+                visibleFiles.forEach { item ->
+                    OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (!item.isPdf) {
+                                val thumb = remember(item.uri) {
+                                    runCatching {
+                                        context.contentResolver.openInputStream(item.uri)?.use {
+                                            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = 12 })?.asImageBitmap()
+                                        }
+                                    }.getOrNull()
+                                }
+                                if (thumb != null) Image(
+                                    bitmap = thumb,
+                                    contentDescription = "Document thumbnail",
+                                    modifier = Modifier.size(54.dp).clickable { openSaved(item) },
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else Text("PDF", style = MaterialTheme.typography.labelLarge)
+                            Spacer(Modifier.width(8.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(item.name, maxLines = 2, style = MaterialTheme.typography.bodyMedium)
+                                Text(if (item.isPdf) "PDF document" else "Scanned image", style = MaterialTheme.typography.bodySmall)
+                            }
+                            TextButton(onClick = { openSaved(item) }) { Text("Open") }
+                            TextButton(onClick = {
+                                val share = Intent(Intent.ACTION_SEND).apply {
+                                    type = if (item.isPdf) "application/pdf" else "image/jpeg"
+                                    putExtra(Intent.EXTRA_STREAM, item.uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(share, "Share file"))
+                            }) { Text("Share") }
+                        }
                     }
                 }
             }
