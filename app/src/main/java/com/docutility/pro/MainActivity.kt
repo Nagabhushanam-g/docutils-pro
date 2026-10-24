@@ -85,6 +85,18 @@ fun MainScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var officeUri by remember { mutableStateOf<Uri?>(null) }
+    var officeName by remember { mutableStateOf("") }
+    val officePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            officeUri = uri
+            officeName = runCatching {
+                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
+                }
+            }.getOrNull() ?: "Selected Office document"
+        }
+    }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
     var savedViewerItem by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
@@ -187,6 +199,20 @@ fun MainScreen(
         )
     }
 
+    officeUri?.let {
+        AlertDialog(
+            onDismissRequest = { officeUri = null },
+            title = { Text("Office document imported") },
+            text = {
+                Column {
+                    Text(officeName)
+                    Spacer(Modifier.height(8.dp))
+                    Text("File selection is ready. PDF conversion will be available after Word layout and Excel table rendering are implemented and verified.")
+                }
+            },
+            confirmButton = { TextButton(onClick = { officeUri = null }) { Text("OK") } }
+        )
+    }
     savedViewerItem?.let { item ->
         DocumentViewer(uri = item.uri, isPdf = item.isPdf, onClose = { savedViewerItem = null })
     }
@@ -321,6 +347,18 @@ fun MainScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            OutlinedButton(
+                onClick = {
+                    officePicker.launch(arrayOf(
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        "application/msword",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        "application/vnd.ms-excel"
+                    ))
+                },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Import Word / Excel (Phase 2)") }
+
             Button(
                 onClick = {
                     photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
