@@ -7,6 +7,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.result.IntentSenderRequest
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanning
+import com.google.mlkit.vision.documentscanner.GmsDocumentScannerOptions
+import com.google.mlkit.vision.documentscanner.GmsDocumentScanningResult
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
@@ -107,6 +111,18 @@ fun MainScreen(
     fun pdfUri(file: File): Uri =
         FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
 
+
+    val scanLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult()
+    ) { result ->
+        if (result.resultCode == android.app.Activity.RESULT_OK) {
+            val pages = GmsDocumentScanningResult.fromActivityResultIntent(result.data)
+                ?.pages?.map { it.imageUri }.orEmpty()
+            val allowed = if (isProUser) pages.size else (5 - selectedUris.size).coerceAtLeast(0)
+            selectedUris = selectedUris + pages.take(allowed)
+            feedback = "${pages.take(allowed).size} cropped page(s) added"
+        }
+    }
 
     var pendingCameraUri by remember { mutableStateOf<Uri?>(null) }
     val cameraCapture = rememberLauncherForActivityResult(
@@ -210,6 +226,24 @@ fun MainScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Scan with Camera") }
 
+            Button(onClick = {
+                val options = GmsDocumentScannerOptions.Builder()
+                    .setGalleryImportAllowed(true)
+                    .setPageLimit(if (isProUser) 30 else 5)
+                    .setResultFormats(GmsDocumentScannerOptions.RESULT_FORMAT_JPEG)
+                    .setScannerMode(GmsDocumentScannerOptions.SCANNER_MODE_FULL)
+                    .build()
+                GmsDocumentScanning.getClient(options)
+                    .getStartScanIntent(context as ComponentActivity)
+                    .addOnSuccessListener { sender ->
+                        scanLauncher.launch(IntentSenderRequest.Builder(sender).build())
+                    }
+                    .addOnFailureListener {
+                        Toast.makeText(context, "Smart scan unavailable; use camera instead", Toast.LENGTH_LONG).show()
+                    }
+            }, modifier = Modifier.fillMaxWidth()) {
+                Text("Smart Scan: Auto Crop & Enhance")
+            }
             Text("Capture documents or select photos, then convert them into a PDF.")
             if (selectedUris.isNotEmpty()) {
                 OutlinedTextField(
@@ -221,7 +255,7 @@ fun MainScreen(
                 )
                 Text("Compression preset")
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                    listOf("Small" to 50f, "Balanced" to 75f, "High" to 95f).forEach { (label, quality) ->
+                    listOf("Small" to 50f, "Normal" to 75f, "High" to 95f).forEach { (label, quality) ->
                         OutlinedButton(onClick = { compressionQuality = quality }, modifier = Modifier.weight(1f)) {
                             Text(label)
                         }
