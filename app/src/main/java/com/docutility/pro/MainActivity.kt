@@ -16,6 +16,12 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.asImageBitmap
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -246,6 +252,51 @@ fun MainScreen(
             }
             Text("Capture documents or select photos, then convert them into a PDF.")
             if (selectedUris.isNotEmpty()) {
+                Text("Pages (in PDF order)", style = MaterialTheme.typography.titleMedium)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    itemsIndexed(selectedUris) { index, uri ->
+                        Column(modifier = Modifier.width(140.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            val preview = remember(uri) {
+                                runCatching {
+                                    context.contentResolver.openInputStream(uri)?.use { stream ->
+                                        val options = BitmapFactory.Options().apply { inSampleSize = 8 }
+                                        BitmapFactory.decodeStream(stream, null, options)?.asImageBitmap()
+                                    }
+                                }.getOrNull()
+                            }
+                            if (preview != null) {
+                                Image(
+                                    bitmap = preview,
+                                    contentDescription = "Page ${index + 1} preview",
+                                    modifier = Modifier.fillMaxWidth().height(150.dp),
+                                    contentScale = ContentScale.Fit
+                                )
+                            } else {
+                                Text("Preview unavailable")
+                            }
+                            Text("Page ${index + 1}")
+                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                                TextButton(onClick = {
+                                    if (index > 0) {
+                                        val pages = selectedUris.toMutableList()
+                                        java.util.Collections.swap(pages, index, index - 1)
+                                        selectedUris = pages
+                                    }
+                                }, enabled = index > 0) { Text("←") }
+                                TextButton(onClick = {
+                                    if (index < selectedUris.lastIndex) {
+                                        val pages = selectedUris.toMutableList()
+                                        java.util.Collections.swap(pages, index, index + 1)
+                                        selectedUris = pages
+                                    }
+                                }, enabled = index < selectedUris.lastIndex) { Text("→") }
+                            }
+                            TextButton(onClick = {
+                                selectedUris = selectedUris.filterIndexed { i, _ -> i != index }
+                            }) { Text("Remove") }
+                        }
+                    }
+                }
                 OutlinedTextField(
                     value = documentName,
                     onValueChange = { documentName = it.take(60) },
