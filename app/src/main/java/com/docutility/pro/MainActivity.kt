@@ -512,7 +512,8 @@ fun MainScreen(
                                 Text(item.name, maxLines = 2, style = MaterialTheme.typography.bodyMedium)
                                 Text(if (item.isPdf) "PDF document" else "Scanned image", style = MaterialTheme.typography.bodySmall)
                             }
-                            TextButton(onClick = { openSaved(item) }) { Text("Open") }\n                            TextButton(onClick = { moveTarget = item }) { Text("Move") }
+                            TextButton(onClick = { openSaved(item) }) { Text("Open") }
+                            TextButton(onClick = { moveTarget = item }) { Text("Move") }
                             TextButton(onClick = {
                                 val share = Intent(Intent.ACTION_SEND).apply {
                                     type = if (item.isPdf) "application/pdf" else "image/jpeg"
