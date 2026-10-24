@@ -7,14 +7,10 @@ import android.graphics.pdf.PdfDocument
 import android.net.Uri
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.w3c.dom.Element
-import org.w3c.dom.Node
 import java.io.File
 import java.util.zip.ZipInputStream
-import javax.xml.parsers.DocumentBuilderFactory
-import org.xml.sax.InputSource
-import org.xml.sax.SAXException
-import java.io.StringReader
+import android.util.Xml
+import org.xmlpull.v1.XmlPullParser
 
 /**
  * Basic, offline OOXML-to-PDF conversion. Supports DOCX paragraphs and XLSX cell
@@ -22,29 +18,50 @@ import java.io.StringReader
  * are NOT preserved. Never claim layout-fidelity for this converter.
  */
 object OfficePdfConverter {
-    private fun children(node: Node, name: String): List<Element> {
-        val result = mutableListOf<Element>()
-        val nodes = (node as Element).getElementsByTagNameNS("*", name)
-        for (i in 0 until nodes.length) (nodes.item(i) as? Element)?.let(result::add)
-        return result
-    }
-
-    private fun parse(bytes: ByteArray): org.w3c.dom.Document {
-        // Android's built-in XML parser does not support every Apache Xerces feature.
-        // Reject DTDs before parsing and block external entity resolution explicitly.
+    // Use Android's native streaming parser instead of DOM factory features that
+    // differ between Android versions. OOXML does not need DTD processing.
+    private fun xmlParser(bytes: ByteArray): XmlPullParser {
         val xml = bytes.toString(Charsets.UTF_8)
         require(!Regex("<!\\s*(DOCTYPE|ENTITY)", RegexOption.IGNORE_CASE).containsMatchIn(xml)) {
             "XML DTDs and entities are not supported"
         }
-        val factory = DocumentBuilderFactory.newInstance()
-        factory.isNamespaceAware = true
-        // Android's bundled DOM parser can throw UnsupportedOperationException
-        // when setXIncludeAware(false) is called, even though XInclude is not
-        // enabled by default. Avoid that unsupported setter entirely.
-        factory.isExpandEntityReferences = false
-        val builder = factory.newDocumentBuilder()
-        builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
-        return builder.parse(bytes.inputStream())
+        return Xml.newPullParser().apply {
+            setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            setInput(bytes.inputStream(), "UTF-8")
+        }
+    }
+
+    // Collect text from OOXML leaf elements, grouping by a specified parent.
+    private fun groupedText(bytes: ByteArray, group: String, textTag: String): List<String> {
+        val parser = xmlParser(bytes)
+        val result = mutableListOf<String>()
+        var depth = 0
+        var groupDepth = -1
+        var textDepth = -1
+        var current = StringBuilder()
+        while (true) {
+            when (parser.next()) {
+                XmlPullParser.START_TAG -> {
+                    depth++
+                    if (parser.name == group && groupDepth == -1) {
+                        groupDepth = depth
+                        current = StringBuilder()
+                    } else if (groupDepth != -1 && parser.name == textTag) {
+                        textDepth = depth
+                    }
+                }
+                XmlPullParser.TEXT -> if (textDepth != -1) current.append(parser.text)
+                XmlPullParser.END_TAG -> {
+                    if (depth == textDepth) textDepth = -1
+                    if (depth == groupDepth) {
+                        result.add(current.toString())
+                        groupDepth = -1
+                    }
+                    depth--
+                }
+                XmlPullParser.END_DOCUMENT -> return result
+            }
+        }
     }
 
     private fun zipEntries(context: Context, uri: Uri): Map<String, ByteArray> {
@@ -68,34 +85,46 @@ object OfficePdfConverter {
         return result
     }
 
-    private fun wordLines(entries: Map<String, ByteArray>): List<String> {
-        val xml = parse(entries["word/document.xml"] ?: error("Invalid DOCX file"))
-        return children(xml.documentElement, "p").map { p ->
-            children(p, "t").joinToString("") { it.textContent.orEmpty() }
-        }
-    }
+    private fun wordLines(entries: Map<String, ByteArray>): List<String> =
+        groupedText(entries["word/document.xml"] ?: error("Invalid DOCX file"), "p", "t")
 
     private fun excelLines(entries: Map<String, ByteArray>): List<String> {
-        val shared = entries["xl/sharedStrings.xml"]?.let { parse(it) }
-        val strings = shared?.let { children(it.documentElement, "si").map { si ->
-            children(si, "t").joinToString("") { it.textContent.orEmpty() }
-        } }.orEmpty()
+        val strings = entries["xl/sharedStrings.xml"]?.let { groupedText(it, "si", "t") }.orEmpty()
         val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+\\.xml").matches(it) }.sorted()
         require(sheets.isNotEmpty()) { "No Excel worksheets found" }
         val lines = mutableListOf<String>()
         sheets.forEachIndexed { index, name ->
             lines.add("Worksheet ${index + 1}")
-            val sheet = parse(entries.getValue(name))
-            children(sheet.documentElement, "row").forEach { row ->
-                val cells = children(row, "c").map { cell ->
-                    val value = children(cell, "v").firstOrNull()?.textContent.orEmpty()
-                    when (cell.getAttribute("t")) {
-                        "s" -> strings.getOrNull(value.toIntOrNull() ?: -1).orEmpty()
-                        "inlineStr" -> children(cell, "t").joinToString("") { it.textContent.orEmpty() }
-                        else -> value
+            val parser = xmlParser(entries.getValue(name))
+            var row = mutableListOf<String>()
+            var inCell = false
+            var cellType = ""
+            var value = StringBuilder()
+            var readingValue = false
+            while (true) {
+                val event = parser.next()
+                if (event == XmlPullParser.END_DOCUMENT) break
+                when (event) {
+                    XmlPullParser.START_TAG -> when (parser.name) {
+                        "row" -> row = mutableListOf()
+                        "c" -> {
+                            inCell = true
+                            cellType = parser.getAttributeValue(null, "t").orEmpty()
+                            value = StringBuilder()
+                        }
+                        "v", "t" -> if (inCell) readingValue = true
+                    }
+                    XmlPullParser.TEXT -> if (readingValue) value.append(parser.text)
+                    XmlPullParser.END_TAG -> when (parser.name) {
+                        "v", "t" -> readingValue = false
+                        "c" -> {
+                            val raw = value.toString()
+                            row.add(if (cellType == "s") strings.getOrNull(raw.toIntOrNull() ?: -1).orEmpty() else raw)
+                            inCell = false
+                        }
+                        "row" -> lines.add(row.joinToString(" | "))
                     }
                 }
-                lines.add(cells.joinToString(" | "))
             }
             lines.add("")
         }
