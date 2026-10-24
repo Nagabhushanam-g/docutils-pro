@@ -84,20 +84,14 @@ fun MainScreen(
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
     var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
-    var recentPdfs by remember {
-        mutableStateOf(context.cacheDir.listFiles()
-            ?.filter { it.isFile && it.extension.equals("pdf", ignoreCase = true) }
-            ?.sortedByDescending { it.lastModified() }
-            ?.take(10) ?: emptyList())
-    }
-    fun openPdf(file: File) {
-        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+    var recentFiles by remember { mutableStateOf(runCatching { DocumentStorage.recentFiles(context) }.getOrDefault(emptyList())) }
+    fun openSaved(item: DocumentStorage.SavedItem) {
         val intent = Intent(Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "application/pdf")
+            setDataAndType(item.uri, if (item.isPdf) "application/pdf" else "image/*")
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
-        runCatching { context.startActivity(Intent.createChooser(intent, "Open PDF")) }
-            .onFailure { Toast.makeText(context, "No PDF viewer found", Toast.LENGTH_LONG).show() }
+        runCatching { context.startActivity(Intent.createChooser(intent, "Open document")) }
+            .onFailure { Toast.makeText(context, "No compatible viewer found", Toast.LENGTH_LONG).show() }
     }
     var feedback by remember { mutableStateOf<String?>(null) }
     var compressionQuality by remember { mutableFloatStateOf(75f) }
@@ -116,6 +110,7 @@ fun MainScreen(
             val saved = pages.take(allowed).mapNotNull { runCatching { DocumentStorage.saveScannedImage(context, it) }.getOrNull() }
             selectedUris = selectedUris + saved
             feedback = "${saved.size} cropped image(s) saved to Pictures/DocUtils Pro"
+            recentFiles = runCatching { DocumentStorage.recentFiles(context) }.getOrDefault(recentFiles)
         }
     }
 
@@ -129,6 +124,7 @@ fun MainScreen(
                     runCatching { DocumentStorage.saveScannedImage(context, uri) }.onSuccess { saved ->
                         selectedUris = selectedUris + saved
                         feedback = "Photo saved to Pictures/DocUtils Pro"
+                        recentFiles = runCatching { DocumentStorage.recentFiles(context) }.getOrDefault(recentFiles)
                     }.onFailure { Toast.makeText(context, "Unable to save photo", Toast.LENGTH_LONG).show() }
                 } else {
                     Toast.makeText(context, "Free tier limit: 5 images", Toast.LENGTH_LONG).show()
@@ -336,17 +332,17 @@ fun MainScreen(
                                 }
                                 latestSavedPdfUri = saved.getOrNull()
                                 latestPdf = file
-                                recentPdfs = (listOf(file) + recentPdfs).distinctBy { it.absolutePath }.take(10)
+                                recentFiles = runCatching { DocumentStorage.recentFiles(context) }.getOrDefault(recentFiles)
                                 feedback = "Saved to Documents/DocUtils Pro • ${selectedUris.size} page(s) • ${file.length() / 1024} KB"
                                 // Show interstitial ad before triggering share/view intent
                                 onShowAd {
-                                    val uri = pdfUri(file)
+                                    val uri = latestSavedPdfUri ?: pdfUri(file)
                                     val intent = Intent(Intent.ACTION_VIEW).apply {
                                         setDataAndType(uri, "application/pdf")
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     }
                                     runCatching { context.startActivity(Intent.createChooser(intent, "Open PDF")) }
-                                        .onFailure { Toast.makeText(context, "No PDF viewer found. Use Save PDF instead.", Toast.LENGTH_LONG).show() }
+                                        .onFailure { Toast.makeText(context, "No PDF viewer found. The PDF is saved in Documents/DocUtils Pro.", Toast.LENGTH_LONG).show() }
                                 }
                             }.onFailure {
                                 Toast.makeText(context, "Failed to create PDF", Toast.LENGTH_SHORT).show()
@@ -369,21 +365,15 @@ fun MainScreen(
                     context.startActivity(Intent.createChooser(intent, "Share Images"))
                 }, modifier = Modifier.fillMaxWidth()) { Text("Share Images") }
             }
-            if (recentPdfs.isNotEmpty()) {
+            if (recentFiles.isNotEmpty()) {
                 HorizontalDivider()
-                Text("Recent PDFs", style = MaterialTheme.typography.titleMedium)
-                recentPdfs.forEach { file ->
-                    if (file.exists()) {
-                        OutlinedButton(
-                            onClick = {
-                                latestPdf = file
-                                feedback = "${file.name} • ${file.length() / 1024} KB"
-                                openPdf(file)
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text(file.name, maxLines = 1)
-                        }
+                Text("Recent Files", style = MaterialTheme.typography.titleMedium)
+                recentFiles.forEach { item ->
+                    OutlinedButton(
+                        onClick = { openSaved(item) },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text((if (item.isPdf) "PDF • " else "Image • ") + item.name, maxLines = 1)
                     }
                 }
             }
