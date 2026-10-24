@@ -67,6 +67,27 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var isProcessing by remember { mutableStateOf(false) }
+    var latestPdf by remember { mutableStateOf<File?>(null) }
+    var feedback by remember { mutableStateOf<String?>(null) }
+    val savePdf = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/pdf")
+    ) { destination ->
+        val file = latestPdf
+        if (destination != null && file != null) {
+            runCatching {
+                context.contentResolver.openOutputStream(destination)?.use { output ->
+                    file.inputStream().use { input -> input.copyTo(output) }
+                } ?: error("Cannot open destination")
+            }.onSuccess {
+                Toast.makeText(context, "PDF saved successfully", Toast.LENGTH_LONG).show()
+            }.onFailure {
+                Toast.makeText(context, "Unable to save PDF", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+    fun pdfUri(file: File): Uri =
+        FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+
 
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(100)
@@ -126,6 +147,7 @@ fun MainScreen(
                 Text("Select Images (${selectedUris.size} selected)")
             }
 
+            Text("Convert photos to a PDF, then save or share it.")
             if (selectedUris.isNotEmpty()) {
                 Button(
                     onClick = {
@@ -144,9 +166,11 @@ fun MainScreen(
                             isProcessing = false
 
                             result.onSuccess { file ->
+                                latestPdf = file
+                                feedback = "PDF ready • ${selectedUris.size} page(s) • ${file.length() / 1024} KB"
                                 // Show interstitial ad before triggering share/view intent
                                 onShowAd {
-                                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+                                    val uri = pdfUri(file)
                                     val intent = Intent(Intent.ACTION_VIEW).apply {
                                         setDataAndType(uri, "application/pdf")
                                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
@@ -163,6 +187,24 @@ fun MainScreen(
                 ) {
                     Text(if (isProcessing) "Converting..." else "Convert to Compressed PDF")
                 }
+            }
+            feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+            latestPdf?.let { file ->
+                Button(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { savePdf.launch(file.name) }
+                ) { Text("Save PDF to device") }
+                OutlinedButton(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = {
+                        val intent = Intent(Intent.ACTION_SEND).apply {
+                            type = "application/pdf"
+                            putExtra(Intent.EXTRA_STREAM, pdfUri(file))
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        context.startActivity(Intent.createChooser(intent, "Share PDF"))
+                    }
+                ) { Text("Share PDF") }
             }
         }
     }
