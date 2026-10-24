@@ -90,7 +90,7 @@ object OfficePdfConverter {
 
     private fun excelRows(entries: Map<String, ByteArray>): List<Pair<String, List<List<String>>>> {
         val strings = entries["xl/sharedStrings.xml"]?.let { groupedText(it, "si", "t") }.orEmpty()
-        val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+\\\\.xml").matches(it) }
+        val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
             .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
         require(sheets.isNotEmpty()) { "No Excel worksheets found" }
         return sheets.mapIndexed { index, name ->
@@ -149,7 +149,7 @@ object OfficePdfConverter {
         val width = 1191
         val height = 842
         val margin = 35f
-        val rowHeight = 23f
+        val rowHeight = 28f
         val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 10f }
         val border = Paint().apply { color = Color.LTGRAY; style = Paint.Style.STROKE; strokeWidth = 0.6f }
         var pageNumber = 0
@@ -170,7 +170,7 @@ object OfficePdfConverter {
         sheets.forEach { (title, rows) ->
             val cols = (rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
             // Wide sheets are tiled horizontally instead of shrinking text to illegibility.
-            val columnsPerPage = 8
+            val columnsPerPage = 6
             val tiles = (cols + columnsPerPage - 1) / columnsPerPage
             for (tile in 0 until tiles) {
                 val first = tile * columnsPerPage
@@ -209,7 +209,7 @@ object OfficePdfConverter {
                 val lines = if (extension == "docx") wordLines(entries) else emptyList()
                 if (extension == "docx") require(lines.isNotEmpty()) { "Document has no readable content" }
                 val pdf = PdfDocument()
-                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 11f }
+                val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 12f }
                 val width = 595
                 val height = 842
                 var pageNumber = 0
@@ -225,7 +225,7 @@ object OfficePdfConverter {
                 fun drawLine(text: String) {
                     if (page == null || y > height - 45f) startPage()
                     page!!.canvas.drawText(text, 40f, y, paint)
-                    y += 17f
+                    y += 19f
                 }
                 try {
                     if (extension == "xlsx") {
@@ -234,11 +234,17 @@ object OfficePdfConverter {
                     startPage()
                     lines.forEach { line ->
                         if (line.isBlank()) { drawLine(" "); return@forEach }
-                        var remaining = line
+                        var remaining = line.trim()
                         while (remaining.isNotEmpty()) {
-                            val count = paint.breakText(remaining, true, width - 80f, null).coerceAtLeast(1)
-                            drawLine(remaining.take(count))
-                            remaining = remaining.drop(count)
+                            val limit = paint.breakText(remaining, true, width - 80f, null).coerceAtLeast(1)
+                            if (limit >= remaining.length) {
+                                drawLine(remaining)
+                                break
+                            }
+                            val boundary = remaining.lastIndexOf(' ', limit - 1)
+                            val end = if (boundary > 0) boundary else limit
+                            drawLine(remaining.substring(0, end).trimEnd())
+                            remaining = remaining.substring(end).trimStart()
                         }
                     }
                     page?.let { pdf.finishPage(it) }
