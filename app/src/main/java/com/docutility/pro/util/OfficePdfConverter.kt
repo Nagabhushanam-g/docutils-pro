@@ -149,9 +149,9 @@ object OfficePdfConverter {
         val width = 1191
         val height = 842
         val margin = 35f
-        val top = 76f
+        val top = 68f
         val bottom = height - margin
-        val font = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 12f }
+        val font = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 14f }
         val headerFont = Paint(font).apply { isFakeBoldText = true }
         val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.LTGRAY
@@ -177,7 +177,7 @@ object OfficePdfConverter {
             if (source.isEmpty()) return listOf("")
             val lines = mutableListOf<String>()
             var remaining = source
-            while (remaining.isNotEmpty() && lines.size < 3) {
+            while (remaining.isNotEmpty() && lines.size < 80) {
                 val count = font.breakText(remaining, true, availableWidth, null).coerceAtLeast(1)
                 if (count >= remaining.length) {
                     lines.add(remaining)
@@ -204,7 +204,7 @@ object OfficePdfConverter {
             }
             val cols = (rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
             // Limit the number of columns per tile to keep text legible.
-            val columnsPerPage = 6
+            val columnsPerPage = 5
             val tiles = (cols + columnsPerPage - 1) / columnsPerPage
             for (tile in 0 until tiles) {
                 val first = tile * columnsPerPage
@@ -216,13 +216,13 @@ object OfficePdfConverter {
                     val lines = (0 until count).map { i ->
                         wrapCell(row.getOrNull(first + i).orEmpty(), cellWidth - 12f)
                     }
-                    val rowHeight = maxOf(29f, lines.maxOf { it.size } * 17f + 12f)
+                    val rowHeight = maxOf(32f, lines.maxOf { it.size } * 19f + 12f)
                     for (i in 0 until count) {
                         val x = margin + i * cellWidth
                         page!!.canvas.drawRect(x, y, x + cellWidth, y + rowHeight, border)
                         val pen = if (headerRow) headerFont else font
                         lines[i].forEachIndexed { lineIndex, line ->
-                            page!!.canvas.drawText(line, x + 6f, y + 17f + lineIndex * 17f, pen)
+                            page!!.canvas.drawText(line, x + 6f, y + 19f + lineIndex * 19f, pen)
                         }
                     }
                     y += rowHeight
@@ -231,8 +231,8 @@ object OfficePdfConverter {
                 rows.forEachIndexed { rowIndex, row ->
                     val estimated = (0 until count).maxOf { i ->
                         wrapCell(row.getOrNull(first + i).orEmpty(), cellWidth - 12f).size
-                    } * 17f + 12f
-                    if (y + maxOf(29f, estimated) > bottom) {
+                    } * 19f + 12f
+                    if (y + maxOf(32f, estimated) > bottom && y > top) {
                         newPage(label)
                         if (rowIndex > 0) drawRow(header, true)
                     }
