@@ -10,6 +10,8 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -66,6 +68,21 @@ fun MainScreen(
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
+    var recentPdfs by remember {
+        mutableStateOf(context.cacheDir.listFiles()
+            ?.filter { it.isFile && it.extension.equals("pdf", ignoreCase = true) }
+            ?.sortedByDescending { it.lastModified() }
+            ?.take(10) ?: emptyList())
+    }
+    fun openPdf(file: File) {
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.provider", file)
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            setDataAndType(uri, "application/pdf")
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        runCatching { context.startActivity(Intent.createChooser(intent, "Open PDF")) }
+            .onFailure { Toast.makeText(context, "No PDF viewer found", Toast.LENGTH_LONG).show() }
+    }
     var feedback by remember { mutableStateOf<String?>(null) }
     var compressionQuality by remember { mutableFloatStateOf(75f) }
     val savePdf = rememberLauncherForActivityResult(
@@ -133,6 +150,7 @@ fun MainScreen(
             modifier = Modifier
                 .padding(padding)
                 .fillMaxSize()
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -172,6 +190,7 @@ fun MainScreen(
 
                             result.onSuccess { file ->
                                 latestPdf = file
+                                recentPdfs = (listOf(file) + recentPdfs).distinctBy { it.absolutePath }.take(10)
                                 feedback = "PDF ready • ${selectedUris.size} page(s) • ${file.length() / 1024} KB"
                                 // Show interstitial ad before triggering share/view intent
                                 onShowAd {
@@ -192,6 +211,24 @@ fun MainScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (isProcessing) "Converting..." else "Convert to Compressed PDF")
+                }
+            }
+            if (recentPdfs.isNotEmpty()) {
+                HorizontalDivider()
+                Text("Recent PDFs", style = MaterialTheme.typography.titleMedium)
+                recentPdfs.forEach { file ->
+                    if (file.exists()) {
+                        OutlinedButton(
+                            onClick = {
+                                latestPdf = file
+                                feedback = "${file.name} • ${file.length() / 1024} KB"
+                                openPdf(file)
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(file.name, maxLines = 1)
+                        }
+                    }
                 }
             }
             feedback?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
