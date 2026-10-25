@@ -88,6 +88,7 @@ fun MainScreen(
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var officeUri by remember { mutableStateOf<Uri?>(null) }
     var officeName by remember { mutableStateOf("") }
+    var officeLandscape by remember { mutableStateOf(true) }
     val officePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             officeUri = uri
@@ -208,6 +209,15 @@ fun MainScreen(
                 Column {
                     Text(officeName)
                     Spacer(Modifier.height(8.dp))
+                    Text("A4 paper • Excel column widths auto-fit to content")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = !officeLandscape, onClick = { officeLandscape = false })
+                        Text("Portrait", modifier = Modifier.clickable { officeLandscape = false })
+                        Spacer(Modifier.width(12.dp))
+                        RadioButton(selected = officeLandscape, onClick = { officeLandscape = true })
+                        Text("Landscape", modifier = Modifier.clickable { officeLandscape = true })
+                    }
+                    Spacer(Modifier.height(8.dp))
                     Text("Basic offline conversion: paragraphs and cell values only. Original formatting, images, formulas and precise tables may not be preserved. DOCX/XLSX only.")
                 }
             },
@@ -218,7 +228,7 @@ fun MainScreen(
                     officeUri = null
                     coroutineScope.launch {
                         isProcessing = true
-                        val result = OfficePdfConverter.convert(context, source, name)
+                        val result = OfficePdfConverter.convert(context, source, name, officeLandscape)
                         isProcessing = false
                         result.onSuccess { saved ->
                             recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
