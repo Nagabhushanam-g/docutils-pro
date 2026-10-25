@@ -9,8 +9,8 @@ android {
         applicationId = "com.docutility.pro"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "1.0.3"
+        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)
+        versionName = "1.0.${(System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)}"
     }
     buildTypes {
         release {
