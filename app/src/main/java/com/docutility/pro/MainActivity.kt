@@ -86,57 +86,31 @@ fun MainScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
-    var officeUri by remember { mutableStateOf<Uri?>(null) }
-    var officeName by remember { mutableStateOf("") }
-    var officeLandscape by remember { mutableStateOf(true) }
-    val officePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            officeUri = uri
-            officeName = runCatching {
-                context.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
-                    if (cursor.moveToFirst()) cursor.getString(0) else null
-                }
-            }.getOrNull() ?: "Selected Office document"
-        }
-    }
-    val exportedPdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { pdfUri ->
-        if (pdfUri != null) {
-            coroutineScope.launch {
-                val outcome = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val temp = File.createTempFile("office_export_", ".pdf", context.cacheDir)
-                        try {
-                            context.contentResolver.openInputStream(pdfUri)?.use { input ->
-                                temp.outputStream().use { output -> input.copyTo(output) }
-                            } ?: error("Cannot read the selected PDF")
-                            require(temp.length() >= 5L) { "Selected PDF is empty" }
-                            temp.inputStream().use { input ->
-                                val signature = ByteArray(5)
-                                require(input.read(signature) == 5 && String(signature, Charsets.US_ASCII) == "%PDF-") {
-                                    "Selected file is not a valid PDF"
-                                }
-                            }
-                            DocumentStorage.savePdf(context, temp)
-                        } finally {
-                            temp.delete()
-                        }
-                    }
-                }
-                outcome.onSuccess {
-                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
-                    Toast.makeText(context, "Exported PDF saved to Documents/DocUtils Pro", Toast.LENGTH_LONG).show()
-                }.onFailure { error ->
-                    Toast.makeText(context, "PDF import failed: ${error.message}", Toast.LENGTH_LONG).show()
-                }
-            }
-        }
-    }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
     var savedViewerItem by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
     var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
     var recentFiles by remember { mutableStateOf(runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(emptyList())) }
+    val officePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && !isProcessing) {
+            coroutineScope.launch {
+                isProcessing = true
+                val result = withContext(Dispatchers.IO) {
+                    OfficePdfConverter.convert(context, uri, "Imported Office document", true)
+                }
+                isProcessing = false
+                result.onSuccess { saved ->
+                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                    savedViewerItem = recentFiles.firstOrNull { it.uri == saved }
+                        ?: DocumentStorage.SavedItem(saved, "Converted document.pdf", true)
+                    Toast.makeText(context, "Basic PDF created. Original formatting may differ.", Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
     var libraryFilter by remember { mutableStateOf("All") }
     // Folder assignments are local library labels; original files stay in public storage.
     val libraryPrefs = remember { context.getSharedPreferences("docutils_library", android.content.Context.MODE_PRIVATE) }
@@ -233,72 +207,6 @@ fun MainScreen(
         )
     }
 
-    officeUri?.let { selected ->
-        val isExcel = officeName.endsWith(".xlsx", true)
-        val isWord = officeName.endsWith(".docx", true)
-        val officeMime = if (isExcel)
-            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-        AlertDialog(
-            onDismissRequest = { officeUri = null },
-            title = { Text("Preserve original document layout") },
-            text = {
-                Column {
-                    Text(officeName)
-                    Spacer(Modifier.height(8.dp))
-                    Text("Tap Open original, then Export or Print to PDF in your Office app. Return here and tap Import exported PDF on the home screen.")
-                    Spacer(Modifier.height(8.dp))
-                    Text("Optional: Basic offline conversion (not layout-faithful)")
-                    Column {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = !officeLandscape, onClick = { officeLandscape = false })
-                            Text("A4 Portrait", modifier = Modifier.clickable { officeLandscape = false })
-                        }
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            RadioButton(selected = officeLandscape, onClick = { officeLandscape = true })
-                            Text("A4 Landscape", modifier = Modifier.clickable { officeLandscape = true })
-                        }
-                    }
-                    Text("Basic mode rebuilds text and cells and can change page counts, merged cells, images and formatting.")
-                    TextButton(
-                        enabled = !isProcessing && (isExcel || isWord),
-                        onClick = {
-                            val source = officeUri ?: return@TextButton
-                            val name = officeName
-                            val chosenLandscape = officeLandscape
-                            officeUri = null
-                            coroutineScope.launch {
-                                isProcessing = true
-                                val result = OfficePdfConverter.convert(context, source, name, chosenLandscape)
-                                isProcessing = false
-                                result.onSuccess {
-                                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
-                                    Toast.makeText(context, "Basic PDF saved to Documents/DocUtils Pro", Toast.LENGTH_LONG).show()
-                                }.onFailure { error ->
-                                    Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
-                                }
-                            }
-                        }
-                    ) { Text("Convert using basic mode") }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    val openIntent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(selected, officeMime)
-                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    }
-                    try {
-                        context.startActivity(Intent.createChooser(openIntent, "Open in Office app"))
-                        officeUri = null
-                    } catch (error: android.content.ActivityNotFoundException) {
-                        Toast.makeText(context, "Install an Office app that can open this document and export PDF.", Toast.LENGTH_LONG).show()
-                    }
-                }, enabled = isExcel || isWord) { Text("Open original") }
-            },
-            dismissButton = { TextButton(onClick = { officeUri = null }) { Text("Cancel") } }
-        )
-    }
     savedViewerItem?.let { item ->
         DocumentViewer(uri = item.uri, isPdf = item.isPdf, onClose = { savedViewerItem = null })
     }
@@ -443,7 +351,7 @@ fun MainScreen(
                     ))
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Open Word / Excel") }
+            ) { Text("Convert Word / Excel to PDF") }
             OutlinedButton(
                 onClick = { exportedPdfPicker.launch(arrayOf("application/pdf")) },
                 modifier = Modifier.fillMaxWidth()
