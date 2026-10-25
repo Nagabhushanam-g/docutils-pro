@@ -99,6 +99,37 @@ fun MainScreen(
             }.getOrNull() ?: "Selected Office document"
         }
     }
+    val exportedPdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { pdfUri ->
+        if (pdfUri != null) {
+            coroutineScope.launch {
+                val outcome = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val temp = File.createTempFile("office_export_", ".pdf", context.cacheDir)
+                        try {
+                            context.contentResolver.openInputStream(pdfUri)?.use { input ->
+                                temp.outputStream().use { output -> input.copyTo(output) }
+                            } ?: error("Cannot read the selected PDF")
+                            require(temp.length() >= 5L) { "Selected PDF is empty" }
+                            temp.inputStream().use { input ->
+                                val signature = ByteArray(5)
+                                require(input.read(signature) == 5 && String(signature, Charsets.US_ASCII) == "%PDF-") {
+                                    "Selected file is not a valid PDF"
+                                }
+                            }
+                            DocumentStorage.savePdf(context, temp)
+                        } finally {
+                            temp.delete()
+                        }
+                    }
+                }
+                outcome.onSuccess {
+                    Toast.makeText(context, "Exported PDF saved to Documents/DocUtils Pro", Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    Toast.makeText(context, "PDF import failed: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
     var savedViewerItem by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
@@ -215,6 +246,8 @@ fun MainScreen(
                     Text(officeName)
                     Spacer(Modifier.height(8.dp))
                     Text("For the closest match to the source, open the file in a compatible Office app and use its Print or Export to PDF feature. This preserves the app's own page setup and formatting; results depend on the installed app and fonts.")
+                    Spacer(Modifier.height(8.dp))
+                    TextButton(onClick = { officeUri = null; exportedPdfPicker.launch(arrayOf("application/pdf")) }) { Text("Import exported PDF") }
                     Spacer(Modifier.height(12.dp))
                     Text("Optional: Basic offline conversion (not layout-faithful)")
                     Row(verticalAlignment = Alignment.CenterVertically) {
