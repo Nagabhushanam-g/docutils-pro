@@ -123,6 +123,7 @@ fun MainScreen(
                     }
                 }
                 outcome.onSuccess {
+                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
                     Toast.makeText(context, "Exported PDF saved to Documents/DocUtils Pro", Toast.LENGTH_LONG).show()
                 }.onFailure { error ->
                     Toast.makeText(context, "PDF import failed: ${error.message}", Toast.LENGTH_LONG).show()
@@ -245,17 +246,18 @@ fun MainScreen(
                 Column {
                     Text(officeName)
                     Spacer(Modifier.height(8.dp))
-                    Text("For the closest match to the source, open the file in a compatible Office app and use its Print or Export to PDF feature. This preserves the app's own page setup and formatting; results depend on the installed app and fonts.")
+                    Text("Tap Open original, then Export or Print to PDF in your Office app. Return here and tap Import exported PDF on the home screen.")
                     Spacer(Modifier.height(8.dp))
-                    TextButton(onClick = { officeUri = null; exportedPdfPicker.launch(arrayOf("application/pdf")) }) { Text("Import exported PDF") }
-                    Spacer(Modifier.height(12.dp))
                     Text("Optional: Basic offline conversion (not layout-faithful)")
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        RadioButton(selected = !officeLandscape, onClick = { officeLandscape = false })
-                        Text("A4 Portrait", modifier = Modifier.clickable { officeLandscape = false })
-                        Spacer(Modifier.width(8.dp))
-                        RadioButton(selected = officeLandscape, onClick = { officeLandscape = true })
-                        Text("A4 Landscape", modifier = Modifier.clickable { officeLandscape = true })
+                    Column {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = !officeLandscape, onClick = { officeLandscape = false })
+                            Text("A4 Portrait", modifier = Modifier.clickable { officeLandscape = false })
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(selected = officeLandscape, onClick = { officeLandscape = true })
+                            Text("A4 Landscape", modifier = Modifier.clickable { officeLandscape = true })
+                        }
                     }
                     Text("Basic mode rebuilds text and cells and can change page counts, merged cells, images and formatting.")
                     TextButton(
@@ -441,7 +443,11 @@ fun MainScreen(
                     ))
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Import Word / Excel (Phase 2)") }
+            ) { Text("Open Word / Excel") }
+            OutlinedButton(
+                onClick = { exportedPdfPicker.launch(arrayOf("application/pdf")) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Import exported PDF") }
 
             Button(
                 onClick = {
