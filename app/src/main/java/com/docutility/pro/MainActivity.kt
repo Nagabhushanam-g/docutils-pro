@@ -201,43 +201,65 @@ fun MainScreen(
         )
     }
 
-    officeUri?.let {
+    officeUri?.let { selected ->
+        val isExcel = officeName.endsWith(".xlsx", true)
+        val isWord = officeName.endsWith(".docx", true)
+        val officeMime = if (isExcel)
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        else "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         AlertDialog(
             onDismissRequest = { officeUri = null },
-            title = { Text("Office document imported") },
+            title = { Text("Preserve original document layout") },
             text = {
                 Column {
                     Text(officeName)
                     Spacer(Modifier.height(8.dp))
-                    Text("A4 paper • Excel column widths auto-fit to content")
+                    Text("For the closest match to the source, open the file in a compatible Office app and use its Print or Export to PDF feature. This preserves the app's own page setup and formatting; results depend on the installed app and fonts.")
+                    Spacer(Modifier.height(12.dp))
+                    Text("Optional: Basic offline conversion (not layout-faithful)")
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         RadioButton(selected = !officeLandscape, onClick = { officeLandscape = false })
-                        Text("Portrait", modifier = Modifier.clickable { officeLandscape = false })
-                        Spacer(Modifier.width(12.dp))
+                        Text("A4 Portrait", modifier = Modifier.clickable { officeLandscape = false })
+                        Spacer(Modifier.width(8.dp))
                         RadioButton(selected = officeLandscape, onClick = { officeLandscape = true })
-                        Text("Landscape", modifier = Modifier.clickable { officeLandscape = true })
+                        Text("A4 Landscape", modifier = Modifier.clickable { officeLandscape = true })
                     }
-                    Spacer(Modifier.height(8.dp))
-                    Text("Basic offline conversion: paragraphs and cell values only. Original formatting, images, formulas and precise tables may not be preserved. DOCX/XLSX only.")
+                    Text("Basic mode rebuilds text and cells and can change page counts, merged cells, images and formatting.")
+                    TextButton(
+                        enabled = !isProcessing && (isExcel || isWord),
+                        onClick = {
+                            val source = officeUri ?: return@TextButton
+                            val name = officeName
+                            val chosenLandscape = officeLandscape
+                            officeUri = null
+                            coroutineScope.launch {
+                                isProcessing = true
+                                val result = OfficePdfConverter.convert(context, source, name, chosenLandscape)
+                                isProcessing = false
+                                result.onSuccess {
+                                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                                    Toast.makeText(context, "Basic PDF saved to Documents/DocUtils Pro", Toast.LENGTH_LONG).show()
+                                }.onFailure { error ->
+                                    Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        }
+                    ) { Text("Convert using basic mode") }
                 }
             },
             confirmButton = {
                 TextButton(onClick = {
-                    val source = officeUri ?: return@TextButton
-                    val name = officeName
-                    officeUri = null
-                    coroutineScope.launch {
-                        isProcessing = true
-                        val result = OfficePdfConverter.convert(context, source, name, officeLandscape)
-                        isProcessing = false
-                        result.onSuccess { saved ->
-                            recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
-                            Toast.makeText(context, "Basic PDF saved to Documents/DocUtils Pro", Toast.LENGTH_LONG).show()
-                        }.onFailure { error ->
-                            Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
-                        }
+                    val openIntent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(selected, officeMime)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
-                }, enabled = !isProcessing && (officeName.endsWith(".docx", true) || officeName.endsWith(".xlsx", true))) { Text("Convert (basic)") }
+                    try {
+                        context.startActivity(Intent.createChooser(openIntent, "Open in Office app"))
+                        officeUri = null
+                    } catch (error: android.content.ActivityNotFoundException) {
+                        Toast.makeText(context, "Install an Office app that can open this document and export PDF.", Toast.LENGTH_LONG).show()
+                    }
+                }, enabled = isExcel || isWord) { Text("Open original") }
             },
             dismissButton = { TextButton(onClick = { officeUri = null }) { Text("Cancel") } }
         )
