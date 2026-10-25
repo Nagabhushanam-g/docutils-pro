@@ -97,7 +97,20 @@ fun MainScreen(
             coroutineScope.launch {
                 isProcessing = true
                 val result = withContext(Dispatchers.IO) {
-                    OfficePdfConverter.convert(context, uri, "Imported Office document", true)
+                    val displayName = context.contentResolver.query(
+                        uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null
+                    )?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    } ?: uri.lastPathSegment.orEmpty()
+                    val mime = context.contentResolver.getType(uri).orEmpty()
+                    val filename = if (displayName.endsWith(".docx", true) || displayName.endsWith(".xlsx", true)) {
+                        displayName
+                    } else when (mime) {
+                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "Imported_document.docx"
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "Imported_document.xlsx"
+                        else -> displayName
+                    }
+                    OfficePdfConverter.convert(context, uri, filename, true)
                 }
                 isProcessing = false
                 result.onSuccess { saved ->
