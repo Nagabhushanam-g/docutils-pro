@@ -167,7 +167,7 @@ object OfficePdfConverter {
         val margin = 35f
         val top = 68f
         val bottom = height - margin
-        val font = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 14f }
+        val font = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 16f }
         val headerFont = Paint(font).apply { isFakeBoldText = true }
         val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             color = Color.LTGRAY
@@ -220,7 +220,7 @@ object OfficePdfConverter {
             }
             val cols = (rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
             // Limit the number of columns per tile to keep text legible.
-            val columnsPerPage = 5
+            val columnsPerPage = 4
             val tiles = (cols + columnsPerPage - 1) / columnsPerPage
             for (tile in 0 until tiles) {
                 val first = tile * columnsPerPage
@@ -237,19 +237,19 @@ object OfficePdfConverter {
                     var offset = 0
                     val maxLines = wrapped.maxOf { it.size }
                     while (offset < maxLines) {
-                        val availableLines = ((bottom - y - 12f) / 19f).toInt()
+                        val availableLines = ((bottom - y - 12f) / 22f).toInt()
                         if (availableLines < 1 || bottom - y < 32f) {
                             newPage(label)
                         }
-                        val capacity = ((bottom - y - 12f) / 19f).toInt().coerceAtLeast(1)
+                        val capacity = ((bottom - y - 12f) / 22f).toInt().coerceAtLeast(1)
                         val chunk = minOf(maxLines - offset, capacity)
-                        val rowHeight = maxOf(32f, chunk * 19f + 12f)
+                        val rowHeight = maxOf(34f, chunk * 22f + 12f)
                         for (i in 0 until count) {
                             val x = margin + i * cellWidth
                             page!!.canvas.drawRect(x, y, x + cellWidth, y + rowHeight, border)
                             val pen = if (headerRow) headerFont else font
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
-                                page!!.canvas.drawText(line, x + 6f, y + 19f + lineIndex * 19f, pen)
+                                page!!.canvas.drawText(line, x + 6f, y + 21f + lineIndex * 22f, pen)
                             }
                         }
                         y += rowHeight
