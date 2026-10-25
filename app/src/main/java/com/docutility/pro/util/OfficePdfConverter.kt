@@ -160,6 +160,25 @@ object OfficePdfConverter {
         }
     }
 
+    // Extract source worksheet print orientation for the import dialog and
+    // subsequent source-aware conversion. Each sheet may specify its own setup.
+    fun sourceSheetOrientations(context: Context, uri: Uri): List<String> {
+        val entries = zipEntries(context, uri)
+        return entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
+            .map { name ->
+                val parser = xmlParser(entries.getValue(name))
+                var orientation = "unspecified"
+                while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                    if (parser.eventType == XmlPullParser.START_TAG && parser.name == "pageSetup") {
+                        orientation = parser.getAttributeValue(null, "orientation") ?: "unspecified"
+                        break
+                    }
+                }
+                orientation
+            }
+    }
+
     private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean) {
         // A4 at 72 PDF points per inch, with selectable print orientation.
         val width = if (landscape) 842 else 595
