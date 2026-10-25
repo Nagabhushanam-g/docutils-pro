@@ -6,16 +6,6 @@ import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
 import android.content.Intent
-import android.print.PrintAttributes
-import android.print.PrintDocumentAdapter
-import android.print.PrintManager
-import android.os.ParcelFileDescriptor
-import android.os.CancellationSignal
-import android.print.PageRange
-import android.print.PrintDocumentInfo
-import android.print.PrintJob
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
