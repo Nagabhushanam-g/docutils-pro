@@ -352,10 +352,6 @@ fun MainScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Convert Word / Excel to PDF") }
-            OutlinedButton(
-                onClick = { exportedPdfPicker.launch(arrayOf("application/pdf")) },
-                modifier = Modifier.fillMaxWidth()
-            ) { Text("Import exported PDF") }
 
             Button(
                 onClick = {
