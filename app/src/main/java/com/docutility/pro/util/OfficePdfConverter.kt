@@ -340,7 +340,29 @@ object OfficePdfConverter {
                 }
                 try {
                     if (extension == "xlsx") {
-                        renderExcel(pdf, excelRows(entries), landscape)
+                        // Honor the source workbook's first worksheet orientation rather
+                        // than imposing the app's previous landscape default.
+                        // Full print scaling, merged-cell layout and page breaks still
+                        // require a layout-capable Office renderer.
+                        val firstSheetName = entries.keys
+                            .filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+                            .minByOrNull { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: Int.MAX_VALUE }
+                        val sourceLandscape = firstSheetName?.let { sheetName ->
+                            val setup = xmlParser(entries.getValue(sheetName))
+                            var orientation: Boolean? = null
+                            while (setup.next() != XmlPullParser.END_DOCUMENT) {
+                                if (setup.eventType == XmlPullParser.START_TAG && setup.name == "pageSetup") {
+                                    orientation = when (setup.getAttributeValue(null, "orientation")) {
+                                        "landscape" -> true
+                                        "portrait" -> false
+                                        else -> null
+                                    }
+                                    break
+                                }
+                            }
+                            orientation
+                        }
+                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape)
                     } else {
                     startPage()
                     lines.forEach { line ->
