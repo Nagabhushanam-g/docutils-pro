@@ -92,36 +92,18 @@ fun MainScreen(
     var latestPdf by remember { mutableStateOf<File?>(null) }
     var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
     var recentFiles by remember { mutableStateOf(runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(emptyList())) }
+    var pendingOfficeUri by remember { mutableStateOf<Uri?>(null) }
+    var pendingOfficeName by remember { mutableStateOf("") }
     val officePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && !isProcessing) {
-            coroutineScope.launch {
-                isProcessing = true
-                val result = withContext(Dispatchers.IO) {
-                    val displayName = context.contentResolver.query(
-                        uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null
-                    )?.use { cursor ->
-                        if (cursor.moveToFirst()) cursor.getString(0) else null
-                    } ?: uri.lastPathSegment.orEmpty()
-                    val mime = context.contentResolver.getType(uri).orEmpty()
-                    val filename = if (displayName.endsWith(".docx", true) || displayName.endsWith(".xlsx", true)) {
-                        displayName
-                    } else when (mime) {
-                        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "Imported_document.docx"
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "Imported_document.xlsx"
-                        else -> displayName
-                    }
-                    OfficePdfConverter.convert(context, uri, filename, true)
+            pendingOfficeUri = uri
+            pendingOfficeName = runCatching {
+                context.contentResolver.query(
+                    uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null
+                )?.use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0) else null
                 }
-                isProcessing = false
-                result.onSuccess { saved ->
-                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
-                    savedViewerItem = recentFiles.firstOrNull { it.uri == saved }
-                        ?: DocumentStorage.SavedItem(saved, "Converted document.pdf", true)
-                    Toast.makeText(context, "Basic PDF created. Original formatting may differ.", Toast.LENGTH_LONG).show()
-                }.onFailure { error ->
-                    Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
-                }
-            }
+            }.getOrNull() ?: uri.lastPathSegment.orEmpty()
         }
     }
     var libraryFilter by remember { mutableStateOf("All") }
@@ -364,7 +346,45 @@ fun MainScreen(
                     ))
                 },
                 modifier = Modifier.fillMaxWidth()
-            ) { Text("Convert Word / Excel to PDF") }
+            ) { Text("Select Word / Excel file") }
+            pendingOfficeUri?.let { source ->
+                Text("Selected: $pendingOfficeName", style = MaterialTheme.typography.bodyMedium)
+                Button(
+                    enabled = !isProcessing,
+                    onClick = {
+                        val name = pendingOfficeName
+                        coroutineScope.launch {
+                            isProcessing = true
+                            val result = withContext(Dispatchers.IO) {
+                                val mime = context.contentResolver.getType(source).orEmpty()
+                                val filename = if (name.endsWith(".docx", true) || name.endsWith(".xlsx", true)) {
+                                    name
+                                } else when (mime) {
+                                    "application/vnd.openxmlformats-officedocument.wordprocessingml.document" -> "Imported_document.docx"
+                                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "Imported_document.xlsx"
+                                    else -> name
+                                }
+                                OfficePdfConverter.convert(context, source, filename, true)
+                            }
+                            isProcessing = false
+                            result.onSuccess { saved ->
+                                pendingOfficeUri = null
+                                pendingOfficeName = ""
+                                recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                                savedViewerItem = recentFiles.firstOrNull { it.uri == saved }
+                                    ?: DocumentStorage.SavedItem(saved, "Converted document.pdf", true)
+                                Toast.makeText(context, "PDF saved. Basic conversion may change original formatting.", Toast.LENGTH_LONG).show()
+                            }.onFailure { error ->
+                                Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (isProcessing) "Converting…" else "Convert to PDF") }
+                TextButton(onClick = { pendingOfficeUri = null; pendingOfficeName = "" }) {
+                    Text("Remove selected file")
+                }
+            }
 
             Button(
                 onClick = {
