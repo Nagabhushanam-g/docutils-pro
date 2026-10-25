@@ -1,5 +1,6 @@
 """Service contract tests; conversion is mocked to avoid requiring LibreOffice in CI."""
 import io
+import zipfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -7,7 +8,14 @@ from fastapi.testclient import TestClient
 import main
 
 client = TestClient(main.app)
-DOCX = ("document.docx", b"PK\x03\x04fake-docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+def make_docx():
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as archive:
+        archive.writestr("[Content_Types].xml", "<Types/>")
+        archive.writestr("word/document.xml", "<document/>")
+    return stream.getvalue()
+
+DOCX = ("document.docx", make_docx(), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 
 def test_health():
     assert client.get("/health").json() == {"status": "ok"}
@@ -55,3 +63,15 @@ def test_timeout(monkeypatch):
         response = client.post("/convert", headers={"X-API-Key": "test-only-key"},
                                files={"file": DOCX})
     assert response.status_code == 504
+
+def test_reject_invalid_zip(monkeypatch):
+    monkeypatch.setenv("CONVERSION_API_KEY", "test-only-key")
+    response = client.post("/convert", headers={"X-API-Key": "test-only-key"},
+                           files={"file": ("broken.xlsx", b"not a zip", "application/octet-stream")})
+    assert response.status_code == 415
+
+def test_reject_wrong_office_structure(monkeypatch):
+    monkeypatch.setenv("CONVERSION_API_KEY", "test-only-key")
+    response = client.post("/convert", headers={"X-API-Key": "test-only-key"},
+                           files={"file": ("renamed.xlsx", make_docx(), "application/octet-stream")})
+    assert response.status_code == 415
