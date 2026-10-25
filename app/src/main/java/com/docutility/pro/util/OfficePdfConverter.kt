@@ -106,6 +106,7 @@ object OfficePdfConverter {
         require(sheets.isNotEmpty()) { "No Excel worksheets found" }
         return sheets.mapIndexed { index, name ->
             val rows = mutableListOf<List<String>>()
+            var totalCells = 0L
             val parser = xmlParser(entries.getValue(name))
             var cells = sortedMapOf<Int, String>()
             var nextColumn = 0
@@ -145,12 +146,13 @@ object OfficePdfConverter {
                             if (cells.isNotEmpty()) {
                                 val max = cells.lastKey().coerceAtMost(255)
                                 rows.add((0..max).map { cells[it].orEmpty() })
+                                totalCells += max + 1L
                             }
                         }
                     }
                 }
                 require(rows.size <= 20000) { "Worksheet exceeds the 20,000 non-empty row limit" }
-                require(rows.sumOf { it.size.toLong() } <= 1_000_000L) {
+                require(totalCells <= 1_000_000L) {
                     "Worksheet has too many cells to convert safely"
                 }
             }
@@ -226,27 +228,39 @@ object OfficePdfConverter {
                 val cellWidth = (width - 2 * margin) / count
                 val label = if (tiles == 1) title else "$title (columns ${first + 1}-${first + count})"
                 val header = rows.first()
+                // Split tall cells across pages rather than drawing beyond the page.
+                // Keep each column's wrapped text and continue it on the next page.
                 fun drawRow(row: List<String>, headerRow: Boolean) {
-                    val lines = (0 until count).map { i ->
+                    val wrapped = (0 until count).map { i ->
                         wrapCell(row.getOrNull(first + i).orEmpty(), cellWidth - 12f)
                     }
-                    val rowHeight = maxOf(32f, lines.maxOf { it.size } * 19f + 12f)
-                    for (i in 0 until count) {
-                        val x = margin + i * cellWidth
-                        page!!.canvas.drawRect(x, y, x + cellWidth, y + rowHeight, border)
-                        val pen = if (headerRow) headerFont else font
-                        lines[i].forEachIndexed { lineIndex, line ->
-                            page!!.canvas.drawText(line, x + 6f, y + 19f + lineIndex * 19f, pen)
+                    var offset = 0
+                    val maxLines = wrapped.maxOf { it.size }
+                    while (offset < maxLines) {
+                        val availableLines = ((bottom - y - 12f) / 19f).toInt()
+                        if (availableLines < 1 || bottom - y < 32f) {
+                            newPage(label)
                         }
+                        val capacity = ((bottom - y - 12f) / 19f).toInt().coerceAtLeast(1)
+                        val chunk = minOf(maxLines - offset, capacity)
+                        val rowHeight = maxOf(32f, chunk * 19f + 12f)
+                        for (i in 0 until count) {
+                            val x = margin + i * cellWidth
+                            page!!.canvas.drawRect(x, y, x + cellWidth, y + rowHeight, border)
+                            val pen = if (headerRow) headerFont else font
+                            wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
+                                page!!.canvas.drawText(line, x + 6f, y + 19f + lineIndex * 19f, pen)
+                            }
+                        }
+                        y += rowHeight
+                        offset += chunk
+                        if (offset < maxLines) newPage(label)
                     }
-                    y += rowHeight
                 }
                 newPage(label)
                 rows.forEachIndexed { rowIndex, row ->
-                    val estimated = (0 until count).maxOf { i ->
-                        wrapCell(row.getOrNull(first + i).orEmpty(), cellWidth - 12f).size
-                    } * 19f + 12f
-                    if (y + maxOf(32f, estimated) > bottom && y > top) {
+                    // Repeat the first worksheet row as a header on ordinary page breaks.
+                    if (y >= bottom - 32f) {
                         newPage(label)
                         if (rowIndex > 0) drawRow(header, true)
                     }
