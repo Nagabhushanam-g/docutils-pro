@@ -3,6 +3,8 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import os
 import subprocess
+import hmac
+import zipfile
 from fastapi import FastAPI, UploadFile, HTTPException, Header
 from fastapi.responses import Response
 
@@ -20,7 +22,7 @@ def health():
 @app.post("/convert")
 async def convert(file: UploadFile, x_api_key: str | None = Header(default=None)):
     expected_key = os.environ.get("CONVERSION_API_KEY")
-    if not expected_key or x_api_key != expected_key:
+    if not expected_key or not x_api_key or not hmac.compare_digest(x_api_key, expected_key):
         raise HTTPException(401, "Unauthorized")
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in MIMES:
@@ -37,6 +39,24 @@ async def convert(file: UploadFile, x_api_key: str | None = Header(default=None)
                 destination.write(chunk)
         if size == 0:
             raise HTTPException(400, "Empty document")
+        # OOXML files are ZIP archives. Reject malformed archives and
+        # compression bombs before passing untrusted input to LibreOffice.
+        try:
+            with zipfile.ZipFile(incoming) as archive:
+                members = archive.infolist()
+                if len(members) > 5000:
+                    raise HTTPException(413, "Too many archive entries")
+                if any(member.flag_bits & 0x1 for member in members):
+                    raise HTTPException(415, "Encrypted Office files are unsupported")
+                total_uncompressed = sum(member.file_size for member in members)
+                if total_uncompressed > 200 * 1024 * 1024:
+                    raise HTTPException(413, "Office document expands beyond safe limits")
+                names = {member.filename for member in members}
+                required = "xl/workbook.xml" if suffix == ".xlsx" else "word/document.xml"
+                if "[Content_Types].xml" not in names or required not in names:
+                    raise HTTPException(415, "Invalid Office document structure")
+        except (zipfile.BadZipFile, OSError, ValueError):
+            raise HTTPException(415, "Invalid Office ZIP archive")
         output_dir = root / "out"
         output_dir.mkdir()
         profile = root / "profile"
