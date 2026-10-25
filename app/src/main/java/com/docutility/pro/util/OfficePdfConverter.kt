@@ -150,6 +150,9 @@ object OfficePdfConverter {
                     }
                 }
                 require(rows.size <= 20000) { "Worksheet exceeds the 20,000 non-empty row limit" }
+                require(rows.sumOf { it.size.toLong() } <= 1_000_000L) {
+                    "Worksheet has too many cells to convert safely"
+                }
             }
             "Worksheet ${index + 1}" to rows
         }
