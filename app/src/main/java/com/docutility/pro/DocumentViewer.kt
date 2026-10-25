@@ -5,6 +5,17 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.pdf.PdfRenderer
 import android.net.Uri
+import android.content.Intent
+import android.print.PrintAttributes
+import android.print.PrintDocumentAdapter
+import android.print.PrintManager
+import android.os.ParcelFileDescriptor
+import android.os.CancellationSignal
+import android.print.PageRange
+import android.print.PrintDocumentInfo
+import android.print.PrintJob
+import java.io.FileInputStream
+import java.io.FileOutputStream
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
@@ -78,7 +89,19 @@ fun DocumentViewer(uri: Uri, isPdf: Boolean, onClose: () -> Unit) {
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Text(if (isPdf) "PDF Viewer" else "Image Viewer", style = MaterialTheme.typography.titleLarge)
-                    TextButton(onClick = onClose) { Text("Close") }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (isPdf) {
+                            TextButton(onClick = {
+                                val send = Intent(Intent.ACTION_SEND).apply {
+                                    type = "application/pdf"
+                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                }
+                                context.startActivity(Intent.createChooser(send, "Share PDF"))
+                            }) { Text("Share") }
+                        }
+                        TextButton(onClick = onClose) { Text("Close") }
+                    }
                 }
                 Box(modifier = Modifier.weight(1f).fillMaxWidth()
                     .onSizeChanged { viewport = it }
