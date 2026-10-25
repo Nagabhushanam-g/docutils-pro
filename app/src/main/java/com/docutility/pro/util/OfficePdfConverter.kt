@@ -160,10 +160,10 @@ object OfficePdfConverter {
         }
     }
 
-    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>) {
-        // Landscape A3, with readable cell text, wrapped rows and repeating headers.
-        val width = 1191
-        val height = 842
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean) {
+        // A4 at 72 PDF points per inch, with selectable print orientation.
+        val width = if (landscape) 842 else 595
+        val height = if (landscape) 595 else 842
         val margin = 35f
         val top = 68f
         val bottom = height - margin
@@ -220,12 +220,22 @@ object OfficePdfConverter {
             }
             val cols = (rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
             // Limit the number of columns per tile to keep text legible.
-            val columnsPerPage = 4
+            val columnsPerPage = if (landscape) 4 else 3
             val tiles = (cols + columnsPerPage - 1) / columnsPerPage
             for (tile in 0 until tiles) {
                 val first = tile * columnsPerPage
                 val count = minOf(columnsPerPage, cols - first)
-                val cellWidth = (width - 2 * margin) / count
+                val printableWidth = width - 2 * margin
+                val preferredWidths = (0 until count).map { i ->
+                    val column = first + i
+                    val sample = rows.asSequence().map { it.getOrNull(column).orEmpty() }
+                        .filter { it.isNotBlank() }.take(250)
+                        .maxOfOrNull { font.measureText(it.take(55)) + 14f } ?: 70f
+                    sample.coerceIn(75f, printableWidth * 0.55f)
+                }
+                val totalPreferred = preferredWidths.sum()
+                val cellWidths = preferredWidths.map { it * printableWidth / totalPreferred }
+                val cellStarts = cellWidths.runningFold(margin) { x, w -> x + w }
                 val label = if (tiles == 1) title else "$title (columns ${first + 1}-${first + count})"
                 // Some worksheets contain leading rows populated only in other
                 // column tiles. Avoid rendering those as blank rows at the top
@@ -241,7 +251,7 @@ object OfficePdfConverter {
                 // Keep each column's wrapped text and continue it on the next page.
                 fun drawRow(row: List<String>, headerRow: Boolean) {
                     val wrapped = (0 until count).map { i ->
-                        wrapCell(row.getOrNull(first + i).orEmpty(), cellWidth - 12f)
+                        wrapCell(row.getOrNull(first + i).orEmpty(), cellWidths[i] - 12f)
                     }
                     var offset = 0
                     val maxLines = wrapped.maxOf { it.size }
@@ -254,8 +264,8 @@ object OfficePdfConverter {
                         val chunk = minOf(maxLines - offset, capacity)
                         val rowHeight = maxOf(34f, chunk * 22f + 12f)
                         for (i in 0 until count) {
-                            val x = margin + i * cellWidth
-                            page!!.canvas.drawRect(x, y, x + cellWidth, y + rowHeight, border)
+                            val x = cellStarts[i]
+                            page!!.canvas.drawRect(x, y, x + cellWidths[i], y + rowHeight, border)
                             val pen = if (headerRow) headerFont else font
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
                                 page!!.canvas.drawText(line, x + 6f, y + 21f + lineIndex * 22f, pen)
@@ -280,7 +290,7 @@ object OfficePdfConverter {
         page?.let { pdf.finishPage(it) }
     }
 
-    suspend fun convert(context: Context, uri: Uri, filename: String): Result<Uri> =
+    suspend fun convert(context: Context, uri: Uri, filename: String, landscape: Boolean = true): Result<Uri> =
         withContext(Dispatchers.IO) {
             runCatching {
                 val extension = filename.substringAfterLast('.', "").lowercase()
@@ -311,7 +321,7 @@ object OfficePdfConverter {
                 }
                 try {
                     if (extension == "xlsx") {
-                        renderExcel(pdf, excelRows(entries))
+                        renderExcel(pdf, excelRows(entries), landscape)
                     } else {
                     startPage()
                     lines.forEach { line ->
