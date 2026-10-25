@@ -9,6 +9,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,6 +34,8 @@ fun DocumentViewer(uri: Uri, isPdf: Boolean, onClose: () -> Unit) {
     var offsetX by remember(uri, pageIndex) { mutableFloatStateOf(0f) }
     var offsetY by remember(uri, pageIndex) { mutableFloatStateOf(0f) }
     var loadError by remember(uri) { mutableStateOf(false) }
+    var fillHeight by remember(uri) { mutableStateOf(false) }
+    var viewport by remember { mutableStateOf(IntSize.Zero) }
     val bitmap by produceState<Bitmap?>(initialValue = null, uri, pageIndex, isPdf) {
         value = null
         value = withContext(Dispatchers.IO) {
@@ -74,9 +79,16 @@ fun DocumentViewer(uri: Uri, isPdf: Boolean, onClose: () -> Unit) {
                     Text(if (isPdf) "PDF Viewer" else "Image Viewer", style = MaterialTheme.typography.titleLarge)
                     TextButton(onClick = onClose) { Text("Close") }
                 }
-                Box(modifier = Modifier.weight(1f).fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                Box(modifier = Modifier.weight(1f).fillMaxWidth()
+                    .onSizeChanged { viewport = it }
+                    .clipToBounds()
+                    .background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
                     val current = bitmap
                     if (current != null) {
+                        val pageAspect = current.width.toFloat() / current.height.coerceAtLeast(1)
+                        val viewAspect = viewport.width.toFloat() / viewport.height.coerceAtLeast(1)
+                        val fillScale = if (fillHeight && pageAspect > viewAspect && viewAspect > 0f)
+                            (pageAspect / viewAspect).coerceAtMost(5f) else 1f
                         Image(
                             bitmap = current.asImageBitmap(),
                             contentDescription = "Document preview",
@@ -94,8 +106,8 @@ fun DocumentViewer(uri: Uri, isPdf: Boolean, onClose: () -> Unit) {
                                     }
                                 }
                                 .graphicsLayer {
-                                    scaleX = zoom
-                                    scaleY = zoom
+                                    scaleX = zoom * fillScale
+                                    scaleY = zoom * fillScale
                                     translationX = offsetX
                                     translationY = offsetY
                                 },
@@ -114,7 +126,13 @@ fun DocumentViewer(uri: Uri, isPdf: Boolean, onClose: () -> Unit) {
                         Text("${pageIndex + 1} / $pageCount")
                         TextButton(onClick = { pageIndex++ }, enabled = pageIndex < pageCount - 1) { Text("Next") }
                     }
-                    TextButton(onClick = { zoom = 1f; offsetX = 0f; offsetY = 0f }) { Text("Reset zoom") }
+                    TextButton(onClick = {
+                        fillHeight = !fillHeight
+                        zoom = 1f
+                        offsetX = 0f
+                        offsetY = 0f
+                    }) { Text(if (fillHeight) "Fit page" else "Fill height") }
+                    TextButton(onClick = { zoom = 1f; offsetX = 0f; offsetY = 0f }) { Text("Reset") }
                 }
             }
         }
