@@ -30,6 +30,13 @@ jobs:
         run: |
           set -o pipefail
           gradle :app:assembleDebug --stacktrace --console=plain 2>&1 | tee build-output.log
+      - name: Report APK signing certificate
+        if: success()
+        run: |
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          "$APKSIGNER" verify --print-certs "$APK" | grep -E 'Signer #1 certificate (DN|SHA-256 digest)'
+          echo "Compare the SHA-256 certificate fingerprint with the currently installed APK before attempting an update."
       - name: Free artifact storage after successful compilation
         if: success()
         uses: actions/github-script@v7
