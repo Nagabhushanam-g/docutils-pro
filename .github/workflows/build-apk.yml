@@ -42,6 +42,21 @@ jobs:
         run: |
           set -o pipefail
           gradle :app:assembleDebug --stacktrace --console=plain 2>&1 | tee build-output.log
+      - name: Publish build diagnostics in run summary
+        if: always()
+        run: |
+          if [ -f app/build/outputs/apk/debug/app-debug.apk ]; then
+            echo "### APK compilation completed" >> "$GITHUB_STEP_SUMMARY"
+            ls -lh app/build/outputs/apk/debug/app-debug.apk >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### APK missing — inspect failed steps above" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          if [ -f build-output.log ]; then
+            echo '#### Last 60 lines of Gradle output' >> "$GITHUB_STEP_SUMMARY"
+            echo '\`\`\`text' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 60 build-output.log >> "$GITHUB_STEP_SUMMARY"
+            echo '\`\`\`' >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Report APK signing certificate
         if: success()
         run: |
