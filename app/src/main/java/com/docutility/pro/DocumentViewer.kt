@@ -126,23 +126,31 @@ fun DocumentViewer(uri: Uri, isPdf: Boolean, onClose: () -> Unit) {
                     } else if (loadError) Text("Unable to open this document")
                     else CircularProgressIndicator()
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(12.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
                     if (isPdf) {
-                        TextButton(onClick = { pageIndex-- }, enabled = pageIndex > 0) { Text("Previous") }
-                        Text("${pageIndex + 1} / $pageCount")
-                        TextButton(onClick = { pageIndex++ }, enabled = pageIndex < pageCount - 1) { Text("Next") }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            TextButton(onClick = { pageIndex-- }, enabled = pageIndex > 0) { Text("Previous") }
+                            Text("${pageIndex + 1} / $pageCount")
+                            TextButton(onClick = { pageIndex++ }, enabled = pageIndex < pageCount - 1) { Text("Next") }
+                        }
                     }
-                    TextButton(onClick = {
-                        fillHeight = !fillHeight
-                        zoom = 1f
-                        offsetX = 0f
-                        offsetY = 0f
-                    }) { Text(if (fillHeight) "Fit page" else "Fill height") }
-                    TextButton(onClick = { zoom = 1f; offsetX = 0f; offsetY = 0f }) { Text("Reset") }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = {
+                            fillHeight = !fillHeight
+                            zoom = 1f
+                            offsetX = 0f
+                            offsetY = 0f
+                        }) { Text(if (fillHeight) "Fit page" else "Fill height") }
+                        TextButton(onClick = { zoom = 1f; offsetX = 0f; offsetY = 0f }) { Text("Reset zoom") }
+                    }
                 }
             }
         }
