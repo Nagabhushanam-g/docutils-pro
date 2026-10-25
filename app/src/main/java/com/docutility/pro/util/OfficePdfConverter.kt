@@ -227,7 +227,16 @@ object OfficePdfConverter {
                 val count = minOf(columnsPerPage, cols - first)
                 val cellWidth = (width - 2 * margin) / count
                 val label = if (tiles == 1) title else "$title (columns ${first + 1}-${first + count})"
-                val header = rows.first()
+                // Some worksheets contain leading rows populated only in other
+                // column tiles. Avoid rendering those as blank rows at the top
+                // of this tile; keep interior spacing unchanged.
+                val tileRows = rows.dropWhile { row ->
+                    (0 until count).all { i ->
+                        row.getOrNull(first + i).isNullOrBlank()
+                    }
+                }
+                if (tileRows.isEmpty()) continue
+                val header = tileRows.first()
                 // Split tall cells across pages rather than drawing beyond the page.
                 // Keep each column's wrapped text and continue it on the next page.
                 fun drawRow(row: List<String>, headerRow: Boolean) {
@@ -258,7 +267,7 @@ object OfficePdfConverter {
                     }
                 }
                 newPage(label)
-                rows.forEachIndexed { rowIndex, row ->
+                tileRows.forEachIndexed { rowIndex, row ->
                     // Repeat the first worksheet row as a header on ordinary page breaks.
                     if (y >= bottom - 32f) {
                         newPage(label)
