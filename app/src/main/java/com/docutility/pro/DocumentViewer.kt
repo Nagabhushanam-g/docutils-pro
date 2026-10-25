@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import kotlin.math.max
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -89,20 +90,29 @@ fun DocumentViewer(uri: Uri, isPdf: Boolean, onClose: () -> Unit) {
                         val viewAspect = viewport.width.toFloat() / viewport.height.coerceAtLeast(1)
                         val fillScale = if (fillHeight && pageAspect > viewAspect && viewAspect > 0f)
                             (pageAspect / viewAspect).coerceAtMost(5f) else 1f
+                        val effectiveScale = zoom * fillScale
+                        val displayedWidth = if (pageAspect > viewAspect)
+                            viewport.width.toFloat() else viewport.height * pageAspect
+                        val displayedHeight = if (pageAspect > viewAspect)
+                            viewport.width / pageAspect else viewport.height.toFloat()
+                        val maxX = max(0f, (displayedWidth * effectiveScale - viewport.width) / 2f)
+                        val maxY = max(0f, (displayedHeight * effectiveScale - viewport.height) / 2f)
+                        LaunchedEffect(maxX, maxY) {
+                            offsetX = offsetX.coerceIn(-maxX, maxX)
+                            offsetY = offsetY.coerceIn(-maxY, maxY)
+                        }
                         Image(
                             bitmap = current.asImageBitmap(),
                             contentDescription = "Document preview",
                             modifier = Modifier.fillMaxSize()
-                                .pointerInput(uri, pageIndex) {
+                                .pointerInput(uri, pageIndex, fillHeight, viewport) {
                                     detectTransformGestures { _, pan, gestureZoom, _ ->
                                         zoom = (zoom * gestureZoom).coerceIn(1f, 5f)
-                                        if (zoom > 1f) {
-                                            offsetX += pan.x
-                                            offsetY += pan.y
-                                        } else {
-                                            offsetX = 0f
-                                            offsetY = 0f
-                                        }
+                                        val scale = zoom * fillScale
+                                        val boundX = max(0f, (displayedWidth * scale - viewport.width) / 2f)
+                                        val boundY = max(0f, (displayedHeight * scale - viewport.height) / 2f)
+                                        offsetX = (offsetX + pan.x).coerceIn(-boundX, boundX)
+                                        offsetY = (offsetY + pan.y).coerceIn(-boundY, boundY)
                                     }
                                 }
                                 .graphicsLayer {
