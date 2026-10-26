@@ -92,6 +92,47 @@ fun MainScreen(
     var latestPdf by remember { mutableStateOf<File?>(null) }
     var latestSavedPdfUri by remember { mutableStateOf<Uri?>(null) }
     var recentFiles by remember { mutableStateOf(runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(emptyList())) }
+    val exportedPdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
+        if (picked != null) {
+            coroutineScope.launch {
+                val result = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val directory = File(context.cacheDir, "pdf_import_" + System.nanoTime()).apply { mkdirs() }
+                        try {
+                            val selectedName = context.contentResolver.query(
+                                picked, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME), null, null, null
+                            )?.use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+                            val safeName = (selectedName ?: "Exported.pdf")
+                                .replace(Regex("[^A-Za-z0-9._ -]"), "_").take(100)
+                            val outputName = if (safeName.endsWith(".pdf", true)) safeName else "Exported.pdf"
+                            val temp = File(directory, outputName)
+                            context.contentResolver.openInputStream(picked)?.use { input ->
+                                temp.outputStream().use { output -> input.copyTo(output) }
+                            } ?: error("Cannot read the selected PDF")
+                            require(temp.length() >= 5) { "Selected PDF is empty" }
+                            temp.inputStream().use { stream ->
+                                val signature = ByteArray(5)
+                                require(stream.read(signature) == 5 && signature.contentEquals("%PDF-".toByteArray(Charsets.US_ASCII))) {
+                                    "Selected document is not a PDF"
+                                }
+                            }
+                            DocumentStorage.savePdf(context, temp)
+                        } finally {
+                            directory.deleteRecursively()
+                        }
+                    }
+                }
+                result.onSuccess { saved ->
+                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                    savedViewerItem = recentFiles.firstOrNull { it.uri == saved }
+                        ?: DocumentStorage.SavedItem(saved, "Imported.pdf", true)
+                    Toast.makeText(context, "Exported PDF saved in DocUtils Pro", Toast.LENGTH_LONG).show()
+                }.onFailure { error ->
+                    Toast.makeText(context, "PDF import failed: ${error.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
     var pendingOfficeUri by remember { mutableStateOf<Uri?>(null) }
     var pendingOfficeName by remember { mutableStateOf("") }
     val officePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -347,6 +388,14 @@ fun MainScreen(
                 },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Select Word / Excel file") }
+            OutlinedButton(
+                onClick = { exportedPdfPicker.launch(arrayOf("application/pdf")) },
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Import exported PDF") }
+            Text(
+                "Export a PDF in your Office app first, then import it here to save and view it.",
+                style = MaterialTheme.typography.bodySmall
+            )
             pendingOfficeUri?.let { source ->
                 Text("Selected: $pendingOfficeName", style = MaterialTheme.typography.bodyMedium)
                 Button(
