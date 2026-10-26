@@ -4,9 +4,35 @@ from tempfile import TemporaryDirectory
 import os
 import subprocess
 import hmac
+from functools import lru_cache
 import zipfile
 from fastapi import FastAPI, UploadFile, HTTPException, Header
 from fastapi.responses import Response
+
+@lru_cache(maxsize=1)
+def firebase_auth_client():
+    import firebase_admin
+    from firebase_admin import auth
+    if not firebase_admin._apps:
+        firebase_admin.initialize_app()
+    return auth
+
+def verify_request(authorization: str | None, x_api_key: str | None):
+    """Firebase ID tokens for deployed mobile clients; shared key only in explicit test mode."""
+    if os.environ.get("CONVERSION_ALLOW_TEST_API_KEY") == "true":
+        expected = os.environ.get("CONVERSION_API_KEY")
+        if expected and x_api_key and hmac.compare_digest(x_api_key, expected):
+            return
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(401, "Authentication required")
+    token = authorization.removeprefix("Bearer ").strip()
+    if not token:
+        raise HTTPException(401, "Authentication required")
+    try:
+        from firebase_admin import auth
+        firebase_auth_client().verify_id_token(token, check_revoked=True)
+    except Exception:
+        raise HTTPException(401, "Invalid or expired authentication token")
 
 app = FastAPI(docs_url=None, redoc_url=None, openapi_url=None)
 MAX_BYTES = 20 * 1024 * 1024
@@ -20,10 +46,12 @@ def health():
     return {"status": "ok"}
 
 @app.post("/convert")
-async def convert(file: UploadFile, x_api_key: str | None = Header(default=None)):
-    expected_key = os.environ.get("CONVERSION_API_KEY")
-    if not expected_key or not x_api_key or not hmac.compare_digest(x_api_key, expected_key):
-        raise HTTPException(401, "Unauthorized")
+async def convert(
+    file: UploadFile,
+    authorization: str | None = Header(default=None),
+    x_api_key: str | None = Header(default=None),
+):
+    verify_request(authorization, x_api_key)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in MIMES:
         raise HTTPException(415, "Only DOCX and XLSX are supported")
