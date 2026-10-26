@@ -35,4 +35,17 @@ jobs:
           sudo apt-get install -y --no-install-recommends libreoffice-calc libreoffice-writer fonts-liberation
       - name: Run real Excel and Word conversion smoke tests
         run: python -m pytest -q test_real_conversion.py
+      - name: Build production conversion container
+        run: docker build -t docutils-conversion-service:test .
+      - name: Check container health endpoint
+        run: |
+          docker run -d --rm --name docutils-conversion-smoke -p 127.0.0.1:18080:8080 -e CONVERSION_API_KEY=ci-test-only-key docutils-conversion-service:test
+          trap 'docker stop docutils-conversion-smoke || true' EXIT
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:18080/health; then exit 0; fi
+            sleep 2
+          done
+          docker logs docutils-conversion-smoke
+          exit 1
+
 
