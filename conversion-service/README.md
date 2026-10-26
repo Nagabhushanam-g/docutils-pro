@@ -33,3 +33,15 @@ The manual GitHub Actions workflow `.github/workflows/deploy-conversion-service.
 **The deployed Cloud Run service is private and cannot be called directly from the Android APK.** A separate authenticated backend gateway and per-user identity verification are required. Do not disable Cloud Run IAM or copy the API key into the APK as a shortcut. A Cloud Run deployment alone will **not** fix the installed app.
 
 For production, add a secure gateway with user authentication, abuse controls, explicit document-upload consent, and retention controls. Test the user's actual workbook before changing the Android conversion button to use the remote renderer.
+
+## Free, offline desktop conversion (no Google Cloud billing)
+
+For development and layout acceptance testing, install LibreOffice on a Windows, Linux, or macOS computer and run:
+
+```bash
+python conversion-service/local_convert.py "Bill_Packing Plant_AUGUST_2026.xlsx"
+```
+
+This creates a PDF alongside the original workbook. To choose an output location, supply a second argument ending in `.pdf`. On Windows, LibreOffice's `soffice.exe` must be available on PATH. The utility does not upload documents, use Google Cloud, or incur server charges. It is **a desktop testing tool, not an Android conversion feature**.
+
+Compare the PDF's page count, landscape orientation, print scaling, merged cells, images, and layout against the source workbook. LibreOffice and Microsoft Excel may still render differently. Do not mark Android conversion resolved until an on-device renderer or an authorized backend is integrated and tested.
