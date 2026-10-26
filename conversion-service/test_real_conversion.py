@@ -4,6 +4,7 @@ import os
 import shutil
 import zipfile
 from xml.sax.saxutils import escape
+from pypdf import PdfReader
 from fastapi.testclient import TestClient
 from main import app
 
@@ -61,6 +62,10 @@ def test_real_excel_to_pdf(monkeypatch):
     assert response.status_code == 200, response.text
     assert response.content.startswith(b"%PDF-")
     assert len(response.content) > 1000
+    pages = PdfReader(io.BytesIO(response.content)).pages
+    assert len(pages) == 1, f"Expected one printed source page, got {len(pages)}"
+    page = pages[0]
+    assert float(page.mediabox.width) > float(page.mediabox.height), "Source landscape orientation was not preserved"
 
 def test_real_word_to_pdf(monkeypatch):
     assert shutil.which("libreoffice"), "LibreOffice is required"
