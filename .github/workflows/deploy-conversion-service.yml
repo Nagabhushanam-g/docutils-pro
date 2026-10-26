@@ -1,0 +1,47 @@
+name: Deploy Office PDF Conversion Service
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: docutils-conversion-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: conversion-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOY_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy private Cloud Run service
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION }}
+        run: |
+          set -euo pipefail
+          : "${PROJECT_ID:?Set GCP_PROJECT_ID environment variable}"
+          : "${REGION:?Set GCP_REGION environment variable}"
+          gcloud run deploy docutils-conversion \
+            --project="$PROJECT_ID" \
+            --region="$REGION" \
+            --source=conversion-service \
+            --no-allow-unauthenticated \
+            --ingress=internal-and-cloud-load-balancing \
+            --service-account="${{ secrets.GCP_RUNTIME_SERVICE_ACCOUNT }}" \
+            --memory=2Gi \
+            --cpu=2 \
+            --concurrency=1 \
+            --timeout=120 \
+            --max-instances=3 \
+            --set-secrets=CONVERSION_API_KEY=docutils-conversion-api-key:latest
+      - name: Show private service URL
+        env:
+          PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          REGION: ${{ vars.GCP_REGION }}
+        run: |
+          gcloud run services describe docutils-conversion --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)'
