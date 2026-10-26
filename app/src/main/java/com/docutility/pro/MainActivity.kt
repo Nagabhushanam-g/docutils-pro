@@ -364,7 +364,7 @@ fun MainScreen(
                                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "Imported_document.xlsx"
                                     else -> name
                                 }
-                                OfficePdfConverter.convert(context, source, filename, true)
+                                Result.failure<Uri>(IllegalStateException("High-fidelity Office conversion is not yet available. The old converter has been disabled because it breaks Excel print layouts."))
                             }
                             isProcessing = false
                             result.onSuccess { saved ->
@@ -373,7 +373,7 @@ fun MainScreen(
                                 recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
                                 savedViewerItem = recentFiles.firstOrNull { it.uri == saved }
                                     ?: DocumentStorage.SavedItem(saved, "Converted document.pdf", true)
-                                Toast.makeText(context, "PDF saved. Basic conversion may change original formatting.", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "PDF saved.", Toast.LENGTH_LONG).show()
                             }.onFailure { error ->
                                 Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
                             }
