@@ -35,7 +35,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends libreoffice-calc libreoffice-writer fonts-liberation
       - name: Run real Excel and Word conversion smoke tests
         run: python -m pytest -q test_real_conversion.py
-      - name: Build production conversion container
+      - name: Test no-billing offline desktop conversion\n        run: python -m pytest -q test_local_convert.py\n      - name: Build production conversion container
         run: docker build -t docutils-conversion-service:test .
       - name: Check container health endpoint
         run: |
