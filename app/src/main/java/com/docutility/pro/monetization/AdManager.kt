@@ -1,5 +1,6 @@
 package com.docutility.pro.monetization
 
+import com.docutility.pro.BuildConfig
 import android.app.Activity
 import android.content.Context
 import com.google.android.gms.ads.*
@@ -25,7 +26,7 @@ class AdManager(private val context: Context) {
     }
 
     // AdMob test interstitial ID
-    private val interstitialId = "ca-app-pub-3940256099942544/1033173712"
+    private val interstitialId = BuildConfig.ADMOB_INTERSTITIAL_ID
 
     fun loadInterstitial() {
         val adRequest = AdRequest.Builder().build()
