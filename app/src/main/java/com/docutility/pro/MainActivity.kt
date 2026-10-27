@@ -360,7 +360,7 @@ fun MainScreen(
                         AdView(ctx).apply {
                             setAdSize(AdSize.BANNER)
                             // AdMob test banner ID
-                            adUnitId = "ca-app-pub-3940256099942544/6300978111"
+                            adUnitId = BuildConfig.ADMOB_BANNER_ID
                             loadAd(AdRequest.Builder().build())
                         }
                     }
