@@ -9,6 +9,20 @@ import com.google.android.gms.ads.interstitial.InterstitialAdLoadCallback
 class AdManager(private val context: Context) {
 
     private var interstitialAd: InterstitialAd? = null
+    private val prefs = context.getSharedPreferences("docutils_ads", Context.MODE_PRIVATE)
+
+    /** Display opportunities only after completed operations, never mid-conversion. */
+    fun afterCompletedAction(activity: Activity, onContinue: () -> Unit) {
+        val count = prefs.getInt("completed_actions", 0) + 1
+        prefs.edit().putInt("completed_actions", count).apply()
+        val now = System.currentTimeMillis()
+        val lastShown = prefs.getLong("last_interstitial", 0L)
+        if (count % 3 != 0 || now - lastShown < 90_000L) {
+            onContinue()
+            return
+        }
+        showInterstitial(activity, onContinue)
+    }
 
     // AdMob test interstitial ID
     private val interstitialId = "ca-app-pub-3940256099942544/1033173712"
