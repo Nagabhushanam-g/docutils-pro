@@ -69,7 +69,7 @@ class MainActivity : ComponentActivity() {
                 onBuyPro = { billingManager.launchPurchaseFlow(this) },
                 onShowAd = { onDismissed ->
                     if (isProUser) onDismissed()
-                    else adManager.showInterstitial(this, onDismissed)
+                    else adManager.afterCompletedAction(this, onDismissed)
                 }
             )
         }
