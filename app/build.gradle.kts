@@ -12,6 +12,14 @@ android {
         versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)
         versionName = "1.0.${(System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)}"
     }
+    val admobAppId = providers.environmentVariable("DOCUTILS_ADMOB_APP_ID").orElse("ca-app-pub-3940256099942544~3347511713").get()
+    val admobBannerId = providers.environmentVariable("DOCUTILS_ADMOB_BANNER_ID").orElse("ca-app-pub-3940256099942544/6300978111").get()
+    val admobInterstitialId = providers.environmentVariable("DOCUTILS_ADMOB_INTERSTITIAL_ID").orElse("ca-app-pub-3940256099942544/1033173712").get()
+    defaultConfig {
+        manifestPlaceholders["admobAppId"] = admobAppId
+        buildConfigField("String", "ADMOB_BANNER_ID", "\"$admobBannerId\"")
+        buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"$admobInterstitialId\"")
+    }
     buildTypes {
         release {
             isMinifyEnabled = true
@@ -21,7 +29,7 @@ android {
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
-    buildFeatures { compose = true }
+    buildFeatures { compose = true; buildConfig = true }
     composeOptions { kotlinCompilerExtensionVersion = "1.5.8" }
 }
 dependencies {
