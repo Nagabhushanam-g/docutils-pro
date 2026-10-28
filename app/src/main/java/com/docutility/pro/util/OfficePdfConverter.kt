@@ -285,6 +285,11 @@ object OfficePdfConverter {
             val cellFontSize = (14f * (4f / cols.coerceAtLeast(4))).coerceIn(5f, 14f)
             font.textSize = cellFontSize
             headerFont.textSize = cellFontSize
+            // Row height must scale with text size; fixed 34pt rows waste paper
+            // and create unnecessary extra pages for dense printed worksheets.
+            val lineHeight = (cellFontSize * 1.35f).coerceAtLeast(8f)
+            val rowPadding = 5f
+            val minimumRowHeight = (lineHeight + rowPadding).coerceAtLeast(14f)
             for (tile in 0 until tiles) {
                 val first = tile * columnsPerPage
                 val count = minOf(columnsPerPage, cols - first)
@@ -319,19 +324,19 @@ object OfficePdfConverter {
                     var offset = 0
                     val maxLines = wrapped.maxOf { it.size }
                     while (offset < maxLines) {
-                        val availableLines = ((bottom - y - 12f) / 22f).toInt()
-                        if (availableLines < 1 || bottom - y < 32f) {
+                        val availableLines = ((bottom - y - rowPadding) / lineHeight).toInt()
+                        if (availableLines < 1 || bottom - y < minimumRowHeight) {
                             newPage(label)
                         }
                         val capacity = ((bottom - y - 12f) / 22f).toInt().coerceAtLeast(1)
                         val chunk = minOf(maxLines - offset, capacity)
-                        val rowHeight = maxOf(34f, chunk * 22f + 12f)
+                        val rowHeight = maxOf(minimumRowHeight, chunk * lineHeight + rowPadding)
                         for (i in 0 until count) {
                             val x = cellStarts[i]
                             page!!.canvas.drawRect(x, y, x + cellWidths[i], y + rowHeight, border)
                             val pen = if (headerRow) headerFont else font
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
-                                page!!.canvas.drawText(line, x + 2f, y + 21f + lineIndex * 22f, pen)
+                                page!!.canvas.drawText(line, x + 2f, y + cellFontSize + 2f + lineIndex * lineHeight, pen)
                             }
                         }
                         y += rowHeight
@@ -342,9 +347,8 @@ object OfficePdfConverter {
                 newPage(label)
                 tileRows.forEachIndexed { rowIndex, row ->
                     // Repeat the first worksheet row as a header on ordinary page breaks.
-                    if (y >= bottom - 32f) {
+                    if (y >= bottom - minimumRowHeight) {
                         newPage(label)
-                        if (rowIndex > 0) drawRow(header, true)
                     }
                     drawRow(row, rowIndex == 0)
                 }
