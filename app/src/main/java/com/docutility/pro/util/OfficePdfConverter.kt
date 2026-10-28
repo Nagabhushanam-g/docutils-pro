@@ -71,7 +71,7 @@ object OfficePdfConverter {
                 var entry = zip.nextEntry
                 var total = 0L
                 while (entry != null) {
-                    if (!entry.isDirectory && (entry.name.startsWith("word/") || entry.name.startsWith("xl/"))) {
+                    if (!entry.isDirectory && (entry.name.startsWith("word/") || (entry.name.startsWith("xl/") || entry.name == "[Content_Types].xml"))) {
                         val output = java.io.ByteArrayOutputStream()
                         val buffer = ByteArray(16384)
                         var entrySize = 0L
@@ -99,13 +99,50 @@ object OfficePdfConverter {
     private fun wordLines(entries: Map<String, ByteArray>): List<String> =
         groupedText(entries["word/document.xml"] ?: error("Invalid DOCX file"), "p", "t")
 
+    private data class PrintArea(val firstColumn: Int, val lastColumn: Int, val firstRow: Int, val lastRow: Int)
+
+    private fun excelColumnIndex(letters: String): Int =
+        letters.uppercase().fold(0) { n, ch -> n * 26 + (ch - 'A' + 1) } - 1
+
+    /** Excel stores _xlnm.Print_Area in workbook.xml, not in the worksheet XML. */
+    private fun printAreas(entries: Map<String, ByteArray>): Map<Int, PrintArea> {
+        val workbook = entries["xl/workbook.xml"] ?: return emptyMap()
+        val parser = xmlParser(workbook)
+        val areas = mutableMapOf<Int, PrintArea>()
+        var sheetIndex: Int? = null
+        val reference = Regex("""(?:'[^']+'|[^!]+)!\\$?([A-Za-z]+)\\$?(\\d+):\\$?([A-Za-z]+)\\$?(\\d+)""")
+        while (parser.next() != XmlPullParser.END_DOCUMENT) {
+            if (parser.eventType == XmlPullParser.START_TAG && parser.name == "definedName") {
+                sheetIndex = if (parser.getAttributeValue(null, "name") == "_xlnm.Print_Area")
+                    parser.getAttributeValue(null, "localSheetId")?.toIntOrNull() else null
+            } else if (parser.eventType == XmlPullParser.TEXT && sheetIndex != null) {
+                val match = reference.find(parser.text.orEmpty())
+                if (match != null) {
+                    val (a, b, d, e) = match.destructured
+                    val left = excelColumnIndex(a)
+                    val right = excelColumnIndex(d)
+                    val top = b.toIntOrNull() ?: 1
+                    val bottom = e.toIntOrNull() ?: top
+                    if (left in 0..255 && right in left..255 && top in 1..20000 && bottom in top..20000)
+                        areas[sheetIndex!!] = PrintArea(left, right, top, bottom)
+                }
+            } else if (parser.eventType == XmlPullParser.END_TAG && parser.name == "definedName") {
+                sheetIndex = null
+            }
+        }
+        return areas
+    }
+
     private fun excelRows(entries: Map<String, ByteArray>): List<Pair<String, List<List<String>>>> {
+        val areas = printAreas(entries)
         val strings = entries["xl/sharedStrings.xml"]?.let { groupedText(it, "si", "t") }.orEmpty()
         val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
             .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
         require(sheets.isNotEmpty()) { "No Excel worksheets found" }
         return sheets.mapIndexed { index, name ->
             val rows = mutableListOf<List<String>>()
+            val area = areas[index]
+            var rowNumber = 0
             var totalCells = 0L
             val parser = xmlParser(entries.getValue(name))
             var cells = sortedMapOf<Int, String>()
@@ -120,7 +157,7 @@ object OfficePdfConverter {
                 if (event == XmlPullParser.END_DOCUMENT) break
                 when (event) {
                     XmlPullParser.START_TAG -> when (parser.name) {
-                        "row" -> { cells = sortedMapOf(); nextColumn = 0 }
+                        "row" -> { cells = sortedMapOf(); nextColumn = 0; rowNumber = parser.getAttributeValue(null, "r")?.toIntOrNull() ?: (rowNumber + 1) }
                         "c" -> {
                             inCell = true
                             cellType = parser.getAttributeValue(null, "t").orEmpty()
@@ -139,14 +176,17 @@ object OfficePdfConverter {
                         "c" -> {
                             val raw = value.toString()
                             val text = if (cellType == "s") strings.getOrNull(raw.toIntOrNull() ?: -1).orEmpty() else raw
-                            if (text.isNotBlank() && column in 0..255) cells[column] = text
+                            if (text.isNotBlank() && column in 0..255 && (area == null || (rowNumber in area.firstRow..area.lastRow && column in area.firstColumn..area.lastColumn))) cells[column] = text
                             inCell = false
                         }
                         "row" -> {
-                            if (cells.isNotEmpty()) {
-                                val max = cells.lastKey().coerceAtMost(255)
-                                rows.add((0..max).map { cells[it].orEmpty() })
-                                totalCells += max + 1L
+                            if (area == null || rowNumber in area.firstRow..area.lastRow) {
+                                val first = area?.firstColumn ?: 0
+                                val last = area?.lastColumn ?: (if (cells.isEmpty()) -1 else cells.lastKey())
+                                if (last >= first) {
+                                    rows.add((first..last).map { cells[it].orEmpty() })
+                                    totalCells += (last - first + 1).toLong()
+                                }
                             }
                         }
                     }
