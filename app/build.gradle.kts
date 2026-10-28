@@ -12,9 +12,9 @@ android {
         versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)
         versionName = "1.0.${(System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)}"
     }
-    val admobAppId = providers.environmentVariable("DOCUTILS_ADMOB_APP_ID").orElse("ca-app-pub-3940256099942544~3347511713").get()
-    val admobBannerId = providers.environmentVariable("DOCUTILS_ADMOB_BANNER_ID").orElse("ca-app-pub-3940256099942544/6300978111").get()
-    val admobInterstitialId = providers.environmentVariable("DOCUTILS_ADMOB_INTERSTITIAL_ID").orElse("ca-app-pub-3940256099942544/1033173712").get()
+    val admobAppId = System.getenv("DOCUTILS_ADMOB_APP_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544~3347511713"
+    val admobBannerId = System.getenv("DOCUTILS_ADMOB_BANNER_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544/6300978111"
+    val admobInterstitialId = System.getenv("DOCUTILS_ADMOB_INTERSTITIAL_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544/1033173712"
     defaultConfig {
         manifestPlaceholders["admobAppId"] = admobAppId
         buildConfigField("String", "ADMOB_BANNER_ID", "\"$admobBannerId\"")
