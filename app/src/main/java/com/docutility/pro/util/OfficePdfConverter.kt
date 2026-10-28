@@ -238,9 +238,13 @@ object OfficePdfConverter {
                 return@forEach
             }
             val cols = (rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
-            // Limit the number of columns per tile to keep text legible.
-            val columnsPerPage = if (landscape) 4 else 3
-            val tiles = (cols + columnsPerPage - 1) / columnsPerPage
+            // Keep each worksheet's columns together on the page. Scale text to
+            // the available printable width instead of generating horizontal tiles.
+            val columnsPerPage = cols
+            val tiles = 1
+            val cellFontSize = (14f * (4f / cols.coerceAtLeast(4))).coerceIn(5f, 14f)
+            font.textSize = cellFontSize
+            headerFont.textSize = cellFontSize
             for (tile in 0 until tiles) {
                 val first = tile * columnsPerPage
                 val count = minOf(columnsPerPage, cols - first)
@@ -250,7 +254,7 @@ object OfficePdfConverter {
                     val sample = rows.asSequence().map { it.getOrNull(column).orEmpty() }
                         .filter { it.isNotBlank() }.take(250)
                         .maxOfOrNull { font.measureText(it.take(55)) + 14f } ?: 70f
-                    sample.coerceIn(75f, printableWidth * 0.55f)
+                    sample.coerceIn(16f, printableWidth * 0.55f)
                 }
                 val totalPreferred = preferredWidths.sum()
                 val cellWidths = preferredWidths.map { it * printableWidth / totalPreferred }
@@ -270,7 +274,7 @@ object OfficePdfConverter {
                 // Keep each column's wrapped text and continue it on the next page.
                 fun drawRow(row: List<String>, headerRow: Boolean) {
                     val wrapped = (0 until count).map { i ->
-                        wrapCell(row.getOrNull(first + i).orEmpty(), cellWidths[i] - 12f)
+                        wrapCell(row.getOrNull(first + i).orEmpty(), (cellWidths[i] - 4f).coerceAtLeast(2f))
                     }
                     var offset = 0
                     val maxLines = wrapped.maxOf { it.size }
@@ -287,7 +291,7 @@ object OfficePdfConverter {
                             page!!.canvas.drawRect(x, y, x + cellWidths[i], y + rowHeight, border)
                             val pen = if (headerRow) headerFont else font
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
-                                page!!.canvas.drawText(line, x + 6f, y + 21f + lineIndex * 22f, pen)
+                                page!!.canvas.drawText(line, x + 2f, y + 21f + lineIndex * 22f, pen)
                             }
                         }
                         y += rowHeight
