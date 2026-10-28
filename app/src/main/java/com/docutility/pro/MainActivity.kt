@@ -396,6 +396,10 @@ fun MainScreen(
                 "Export a PDF in your Office app first, then import it here to save and view it.",
                 style = MaterialTheme.typography.bodySmall
             )
+            Text(
+                "Offline basic conversion: files stay on your phone. Complex Excel and Word formatting may differ from the original.",
+                style = MaterialTheme.typography.bodySmall
+            )
             pendingOfficeUri?.let { source ->
                 Text("Selected: $pendingOfficeName", style = MaterialTheme.typography.bodyMedium)
                 Button(
@@ -413,7 +417,7 @@ fun MainScreen(
                                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" -> "Imported_document.xlsx"
                                     else -> name
                                 }
-                                Result.failure<Uri>(IllegalStateException("High-fidelity Office conversion is not yet available. The old converter has been disabled because it breaks Excel print layouts."))
+                                OfficePdfConverter.convert(context, source, filename, true)
                             }
                             isProcessing = false
                             result.onSuccess { saved ->
