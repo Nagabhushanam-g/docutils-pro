@@ -110,7 +110,7 @@ object OfficePdfConverter {
         val parser = xmlParser(workbook)
         val areas = mutableMapOf<Int, PrintArea>()
         var sheetIndex: Int? = null
-        val reference = Regex("""(?:'[^']+'|[^!]+)!\\$?([A-Za-z]+)\\$?(\\d+):\\$?([A-Za-z]+)\\$?(\\d+)""")
+        val reference = Regex("""(?:'[^']+'|[^!]+)!\$?([A-Za-z]+)\$?(\d+):\$?([A-Za-z]+)\$?(\d+)""")
         while (parser.next() != XmlPullParser.END_DOCUMENT) {
             if (parser.eventType == XmlPullParser.START_TAG && parser.name == "definedName") {
                 sheetIndex = if (parser.getAttributeValue(null, "name") == "_xlnm.Print_Area")
