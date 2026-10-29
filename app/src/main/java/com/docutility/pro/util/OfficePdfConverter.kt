@@ -157,7 +157,23 @@ object OfficePdfConverter {
                 if (event == XmlPullParser.END_DOCUMENT) break
                 when (event) {
                     XmlPullParser.START_TAG -> when (parser.name) {
-                        "row" -> { cells = sortedMapOf(); nextColumn = 0; rowNumber = parser.getAttributeValue(null, "r")?.toIntOrNull() ?: (rowNumber + 1) }
+                        "row" -> {
+                            cells = sortedMapOf()
+                            nextColumn = 0
+                            val nextRow = parser.getAttributeValue(null, "r")?.toIntOrNull() ?: (rowNumber + 1)
+                            // Sparse worksheet XML omits empty rows, but they still
+                            // occupy space inside an explicitly defined print area.
+                            if (area != null && nextRow > rowNumber + 1) {
+                                val firstMissing = maxOf(rowNumber + 1, area.firstRow)
+                                val lastMissing = minOf(nextRow - 1, area.lastRow)
+                                if (firstMissing <= lastMissing) {
+                                    for (missing in firstMissing..lastMissing) {
+                                        rows.add(List(area.lastColumn - area.firstColumn + 1) { "" })
+                                    }
+                                }
+                            }
+                            rowNumber = nextRow
+                        }
                         "c" -> {
                             inCell = true
                             cellType = parser.getAttributeValue(null, "t").orEmpty()
@@ -194,6 +210,11 @@ object OfficePdfConverter {
                 require(rows.size <= 20000) { "Worksheet exceeds the 20,000 non-empty row limit" }
                 require(totalCells <= 1_000_000L) {
                     "Worksheet has too many cells to convert safely"
+                }
+            }
+            if (area != null && rowNumber < area.lastRow) {
+                for (missing in maxOf(rowNumber + 1, area.firstRow)..area.lastRow) {
+                    rows.add(List(area.lastColumn - area.firstColumn + 1) { "" })
                 }
             }
             "Worksheet ${index + 1}" to rows
