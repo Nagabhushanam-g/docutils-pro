@@ -240,7 +240,30 @@ object OfficePdfConverter {
             }
     }
 
-    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>) {
+    // Read original Excel column dimensions instead of guessing widths from text.
+    // Column dimensions are stored as character units in worksheet <cols>.
+    private fun excelColumnWidths(entries: Map<String, ByteArray>): List<Map<Int, Float>> {
+        val names = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
+        return names.map { name ->
+            val widths = mutableMapOf<Int, Float>()
+            val parser = xmlParser(entries.getValue(name))
+            while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                if (parser.eventType == XmlPullParser.START_TAG && parser.name == "col") {
+                    val first = parser.getAttributeValue(null, "min")?.toIntOrNull()
+                    val last = parser.getAttributeValue(null, "max")?.toIntOrNull()
+                    val w = parser.getAttributeValue(null, "width")?.toFloatOrNull()
+                    if (first != null && last != null && w != null &&
+                        first in 1..256 && last in first..256 && w > 0f) {
+                        for (index in first..last) widths[index - 1] = w
+                    }
+                }
+            }
+            widths
+        }
+    }
+
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>) {
         // A4 at 72 PDF points per inch, with selectable print orientation.
         var width = if (landscape) 842 else 595
         var height = if (landscape) 595 else 842
@@ -321,10 +344,17 @@ object OfficePdfConverter {
                 val printableWidth = width - 2 * margin
                 val preferredWidths = (0 until count).map { i ->
                     val column = first + i
+                    val originalWidth = sourceWidths.getOrNull(sheetIndex)?.get(column)
+                    if (originalWidth != null) {
+                        // Excel width is measured in approximately 7-pixel characters.
+                        // Preserve relative proportions; normalize to printable width below.
+                        originalWidth.coerceIn(2f, 100f) * 7f
+                    } else {
                     val sample = rows.asSequence().map { it.getOrNull(column).orEmpty() }
                         .filter { it.isNotBlank() }.take(250)
                         .maxOfOrNull { font.measureText(it.take(55)) + 14f } ?: 70f
                     sample.coerceIn(16f, printableWidth * 0.55f)
+                    }
                 }
                 val totalPreferred = preferredWidths.sum()
                 val cellWidths = preferredWidths.map { it * printableWidth / totalPreferred }
@@ -453,7 +483,7 @@ object OfficePdfConverter {
                             }
                             direction
                         }
-                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations)
+                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries))
                     } else {
                     startPage()
                     lines.forEach { line ->
