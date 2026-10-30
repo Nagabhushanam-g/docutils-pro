@@ -470,8 +470,17 @@ object OfficePdfConverter {
                         val chunk = minOf(maxLines - offset, capacity)
                         val originalRow = rowIndex + (sourceAreas[sheetIndex]?.firstRow ?: 1)
                         val requestedHeight = sourceRowHeights.getOrNull(sheetIndex)?.get(originalRow)
+                        // Source row heights are in unscaled points. The cell font and
+                        // widths are already fitted to the printable page, so cap the
+                        // requested height by the same effective width scaling factor.
+                        // This avoids expanding a dense worksheet into extra pages.
+                        val sourceTotalWidth = (0 until count).sumOf { i ->
+                            (sourceWidths.getOrNull(sheetIndex)?.get(first + i) ?: 8.43f).toDouble() * 7.0
+                        }.toFloat().coerceAtLeast(1f)
+                        val effectiveScale = (printableWidth / sourceTotalWidth).coerceAtMost(1f)
+                        val scaledHeight = (requestedHeight ?: 0f) * effectiveScale
                         val rowHeight = maxOf(minimumRowHeight, chunk * lineHeight + rowPadding,
-                            if (offset == 0) (requestedHeight ?: 0f) else 0f)
+                            if (offset == 0) scaledHeight else 0f)
                             .coerceAtMost((bottom - y).coerceAtLeast(minimumRowHeight))
                         for (i in 0 until count) {
                             val x = cellStarts[i]
