@@ -163,7 +163,7 @@ object OfficePdfConverter {
                             val nextRow = parser.getAttributeValue(null, "r")?.toIntOrNull() ?: (rowNumber + 1)
                             // Sparse worksheet XML omits empty rows, but they still
                             // occupy space inside an explicitly defined print area.
-                            if (area != null && nextRow > rowNumber + 1) {
+                            if (area != null && nextRow > maxOf(rowNumber + 1, area.firstRow)) {
                                 val firstMissing = maxOf(rowNumber + 1, area.firstRow)
                                 val lastMissing = minOf(nextRow - 1, area.lastRow)
                                 if (firstMissing <= lastMissing) {
