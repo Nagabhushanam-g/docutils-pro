@@ -263,6 +263,25 @@ object OfficePdfConverter {
         }
     }
 
+    // Row heights in worksheet XML are expressed in points, matching PDF units.
+    private fun excelRowHeights(entries: Map<String, ByteArray>): List<Map<Int, Float>> {
+        val names = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
+        return names.map { name ->
+            val heights = mutableMapOf<Int, Float>()
+            val parser = xmlParser(entries.getValue(name))
+            while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                if (parser.eventType == XmlPullParser.START_TAG && parser.name == "row") {
+                    val index = parser.getAttributeValue(null, "r")?.toIntOrNull()
+                    val height = parser.getAttributeValue(null, "ht")?.toFloatOrNull()
+                    if (index != null && index in 1..20000 && height != null && height > 0f)
+                        heights[index] = height.coerceAtMost(500f)
+                }
+            }
+            heights
+        }
+    }
+
     private data class HorizontalMerge(val row: Int, val first: Int, val last: Int)
 
     private fun excelHorizontalMerges(entries: Map<String, ByteArray>): List<List<HorizontalMerge>> {
@@ -320,7 +339,7 @@ object OfficePdfConverter {
         }
     }
 
-    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>, sourceMargins: List<SourceMargins>) {
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>, sourceMargins: List<SourceMargins>, sourceRowHeights: List<Map<Int, Float>>, sourceAreas: Map<Int, PrintArea>) {
         // A4 at 72 PDF points per inch, with selectable print orientation.
         var width = if (landscape) 842 else 595
         var height = if (landscape) 595 else 842
@@ -449,7 +468,11 @@ object OfficePdfConverter {
                         }
                         val capacity = ((bottom - y - rowPadding) / lineHeight).toInt().coerceAtLeast(1)
                         val chunk = minOf(maxLines - offset, capacity)
-                        val rowHeight = maxOf(minimumRowHeight, chunk * lineHeight + rowPadding)
+                        val originalRow = rowIndex + (sourceAreas[sheetIndex]?.firstRow ?: 1)
+                        val requestedHeight = sourceRowHeights.getOrNull(sheetIndex)?.get(originalRow)
+                        val rowHeight = maxOf(minimumRowHeight, chunk * lineHeight + rowPadding,
+                            if (offset == 0) (requestedHeight ?: 0f) else 0f)
+                            .coerceAtMost((bottom - y).coerceAtLeast(minimumRowHeight))
                         for (i in 0 until count) {
                             val x = cellStarts[i]
                             val merge = mergedAt.firstOrNull { i in it.first..it.last }
@@ -556,7 +579,7 @@ object OfficePdfConverter {
                             }
                             direction
                         }
-                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries), excelPageMargins(entries))
+                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries), excelPageMargins(entries), excelRowHeights(entries), printAreas(entries))
                     } else {
                     startPage()
                     lines.forEach { line ->
