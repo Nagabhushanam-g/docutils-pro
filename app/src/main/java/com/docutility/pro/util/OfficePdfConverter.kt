@@ -240,13 +240,13 @@ object OfficePdfConverter {
             }
     }
 
-    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean) {
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>) {
         // A4 at 72 PDF points per inch, with selectable print orientation.
-        val width = if (landscape) 842 else 595
-        val height = if (landscape) 595 else 842
+        var width = if (landscape) 842 else 595
+        var height = if (landscape) 595 else 842
         val margin = 35f
         val top = 68f
-        val bottom = height - margin
+        var bottom = height - margin
         val font = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 16f }
         val headerFont = Paint(font).apply { isFakeBoldText = true }
         val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -293,10 +293,14 @@ object OfficePdfConverter {
             return lines
         }
 
-        sheets.forEach { (title, rows) ->
+        sheets.forEachIndexed { sheetIndex, (title, rows) ->
+            val useLandscape = sheetOrientations.getOrNull(sheetIndex) ?: landscape
+            width = if (useLandscape) 842 else 595
+            height = if (useLandscape) 595 else 842
+            bottom = height - margin
             if (rows.isEmpty()) {
                 newPage(title)
-                return@forEach
+                return@forEachIndexed
             }
             val cols = (rows.maxOfOrNull { it.size } ?: 1).coerceAtLeast(1)
             // Keep each worksheet's columns together on the page. Scale text to
@@ -431,7 +435,25 @@ object OfficePdfConverter {
                             }
                             orientation
                         }
-                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape)
+                        val worksheetNames = entries.keys
+                            .filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+                            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
+                        val orientations = worksheetNames.map { sheetName ->
+                            val setup = xmlParser(entries.getValue(sheetName))
+                            var direction: Boolean? = null
+                            while (setup.next() != XmlPullParser.END_DOCUMENT) {
+                                if (setup.eventType == XmlPullParser.START_TAG && setup.name == "pageSetup") {
+                                    direction = when (setup.getAttributeValue(null, "orientation")) {
+                                        "landscape" -> true
+                                        "portrait" -> false
+                                        else -> null
+                                    }
+                                    break
+                                }
+                            }
+                            direction
+                        }
+                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations)
                     } else {
                     startPage()
                     lines.forEach { line ->
