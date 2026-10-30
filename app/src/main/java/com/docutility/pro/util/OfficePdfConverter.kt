@@ -298,13 +298,36 @@ object OfficePdfConverter {
         }
     }
 
-    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>) {
+    private data class SourceMargins(val left: Float, val right: Float, val top: Float, val bottom: Float)
+
+    private fun excelPageMargins(entries: Map<String, ByteArray>): List<SourceMargins> {
+        val names = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
+        return names.map { name ->
+            val parser = xmlParser(entries.getValue(name))
+            var result = SourceMargins(35f, 35f, 35f, 35f)
+            while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                if (parser.eventType == XmlPullParser.START_TAG && parser.name == "pageMargins") {
+                    fun points(key: String, fallback: Float): Float =
+                        (parser.getAttributeValue(null, key)?.toFloatOrNull()?.times(72f) ?: fallback)
+                            .coerceIn(0f, 180f)
+                    result = SourceMargins(points("left", 35f), points("right", 35f),
+                        points("top", 35f), points("bottom", 35f))
+                    break
+                }
+            }
+            result
+        }
+    }
+
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>, sourceMargins: List<SourceMargins>) {
         // A4 at 72 PDF points per inch, with selectable print orientation.
         var width = if (landscape) 842 else 595
         var height = if (landscape) 595 else 842
-        val margin = 35f
-        val top = 68f
-        var bottom = height - margin
+        var leftMargin = 35f
+        var rightMargin = 35f
+        var top = 35f
+        var bottom = height - 35f
         val font = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 16f }
         val headerFont = Paint(font).apply { isFakeBoldText = true }
         val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -322,7 +345,6 @@ object OfficePdfConverter {
             require(pageNumber <= 300) { "Conversion stopped: more than 300 pages. Select a smaller workbook." }
             page = pdf.startPage(PdfDocument.PageInfo.Builder(width, height, pageNumber).create())
             page!!.canvas.drawColor(Color.WHITE)
-            page!!.canvas.drawText(title.take(110), margin, 51f, headerFont)
             y = top
         }
 
@@ -355,7 +377,11 @@ object OfficePdfConverter {
             val useLandscape = sheetOrientations.getOrNull(sheetIndex) ?: landscape
             width = if (useLandscape) 842 else 595
             height = if (useLandscape) 595 else 842
-            bottom = height - margin
+            val margins = sourceMargins.getOrNull(sheetIndex) ?: SourceMargins(35f, 35f, 35f, 35f)
+            leftMargin = margins.left
+            rightMargin = margins.right
+            top = margins.top
+            bottom = height - margins.bottom
             if (rows.isEmpty()) {
                 newPage(title)
                 return@forEachIndexed
@@ -376,7 +402,7 @@ object OfficePdfConverter {
             for (tile in 0 until tiles) {
                 val first = tile * columnsPerPage
                 val count = minOf(columnsPerPage, cols - first)
-                val printableWidth = width - 2 * margin
+                val printableWidth = width - leftMargin - rightMargin
                 val preferredWidths = (0 until count).map { i ->
                     val column = first + i
                     val originalWidth = sourceWidths.getOrNull(sheetIndex)?.get(column)
@@ -393,7 +419,7 @@ object OfficePdfConverter {
                 }
                 val totalPreferred = preferredWidths.sum()
                 val cellWidths = preferredWidths.map { it * printableWidth / totalPreferred }
-                val cellStarts = cellWidths.runningFold(margin) { x, w -> x + w }
+                val cellStarts = cellWidths.runningFold(leftMargin) { x, w -> x + w }
                 val label = if (tiles == 1) title else "$title (columns ${first + 1}-${first + count})"
                 // Some worksheets contain leading rows populated only in other
                 // column tiles. Avoid rendering those as blank rows at the top
@@ -530,7 +556,7 @@ object OfficePdfConverter {
                             }
                             direction
                         }
-                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries))
+                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries), excelPageMargins(entries))
                     } else {
                     startPage()
                     lines.forEach { line ->
