@@ -263,7 +263,42 @@ object OfficePdfConverter {
         }
     }
 
-    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>) {
+    private data class HorizontalMerge(val row: Int, val first: Int, val last: Int)
+
+    private fun excelHorizontalMerges(entries: Map<String, ByteArray>): List<List<HorizontalMerge>> {
+        val areas = printAreas(entries)
+        val names = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
+        val range = Regex("""([A-Za-z]+)([0-9]+):([A-Za-z]+)([0-9]+)""")
+        return names.mapIndexed { index, name ->
+            val merges = mutableListOf<HorizontalMerge>()
+            val area = areas[index]
+            val parser = xmlParser(entries.getValue(name))
+            while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                if (parser.eventType == XmlPullParser.START_TAG && parser.name == "mergeCell") {
+                    val match = range.matchEntire(parser.getAttributeValue(null, "ref").orEmpty())
+                    if (match != null) {
+                        val (a, r1, b, r2) = match.destructured
+                        val firstRow = r1.toIntOrNull() ?: 0
+                        val lastRow = r2.toIntOrNull() ?: 0
+                        val firstCol = excelColumnIndex(a)
+                        val lastCol = excelColumnIndex(b)
+                        // This first pass supports horizontal merges within a single row.
+                        if (firstRow == lastRow && firstCol < lastCol &&
+                            (area == null || (firstRow in area.firstRow..area.lastRow &&
+                                firstCol >= area.firstColumn && lastCol <= area.lastColumn))) {
+                            merges.add(HorizontalMerge(firstRow - (area?.firstRow ?: 1),
+                                firstCol - (area?.firstColumn ?: 0),
+                                lastCol - (area?.firstColumn ?: 0)))
+                        }
+                    }
+                }
+            }
+            merges
+        }
+    }
+
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>) {
         // A4 at 72 PDF points per inch, with selectable print orientation.
         var width = if (landscape) 842 else 595
         var height = if (landscape) 595 else 842
@@ -363,18 +398,21 @@ object OfficePdfConverter {
                 // Some worksheets contain leading rows populated only in other
                 // column tiles. Avoid rendering those as blank rows at the top
                 // of this tile; keep interior spacing unchanged.
-                val tileRows = rows.dropWhile { row ->
-                    (0 until count).all { i ->
-                        row.getOrNull(first + i).isNullOrBlank()
-                    }
-                }
+                val tileRows = rows
+                val merges = sourceMerges.getOrNull(sheetIndex).orEmpty()
                 if (tileRows.isEmpty()) continue
                 val header = tileRows.first()
                 // Split tall cells across pages rather than drawing beyond the page.
                 // Keep each column's wrapped text and continue it on the next page.
-                fun drawRow(row: List<String>, headerRow: Boolean) {
+                fun drawRow(row: List<String>, headerRow: Boolean, rowIndex: Int) {
+                    val mergedAt = merges.filter { it.row == rowIndex }
                     val wrapped = (0 until count).map { i ->
-                        wrapCell(row.getOrNull(first + i).orEmpty(), (cellWidths[i] - 4f).coerceAtLeast(2f))
+                        val merge = mergedAt.firstOrNull { i in it.first..it.last }
+                        val available = if (merge != null && merge.first == i)
+                            cellWidths.subList(i, (merge.last + 1).coerceAtMost(count)).sum()
+                        else cellWidths[i]
+                        if (merge != null && merge.first != i) listOf("")
+                        else listOf(row.getOrNull(first + i).orEmpty().replace('\n', ' ').replace('\r', ' '))
                     }
                     var offset = 0
                     val maxLines = wrapped.maxOf { it.size }
@@ -388,11 +426,20 @@ object OfficePdfConverter {
                         val rowHeight = maxOf(minimumRowHeight, chunk * lineHeight + rowPadding)
                         for (i in 0 until count) {
                             val x = cellStarts[i]
-                            page!!.canvas.drawRect(x, y, x + cellWidths[i], y + rowHeight, border)
+                            val merge = mergedAt.firstOrNull { i in it.first..it.last }
+                            if (merge != null && merge.first != i) continue
+                            val spanWidth = if (merge != null)
+                                cellWidths.subList(i, (merge.last + 1).coerceAtMost(count)).sum()
+                            else cellWidths[i]
+                            page!!.canvas.drawRect(x, y, x + spanWidth, y + rowHeight, border)
                             val pen = if (headerRow) headerFont else font
+                            val canvas = page!!.canvas
+                            canvas.save()
+                            canvas.clipRect(x + 2f, y, x + spanWidth - 2f, y + rowHeight)
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
-                                page!!.canvas.drawText(line, x + 2f, y + cellFontSize + 2f + lineIndex * lineHeight, pen)
+                                canvas.drawText(line, x + 2f, y + cellFontSize + 2f + lineIndex * lineHeight, pen)
                             }
+                            canvas.restore()
                         }
                         y += rowHeight
                         offset += chunk
@@ -405,7 +452,7 @@ object OfficePdfConverter {
                     if (y >= bottom - minimumRowHeight) {
                         newPage(label)
                     }
-                    drawRow(row, rowIndex == 0)
+                    drawRow(row, rowIndex == 0, rowIndex)
                 }
             }
         }
@@ -483,7 +530,7 @@ object OfficePdfConverter {
                             }
                             direction
                         }
-                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries))
+                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries))
                     } else {
                     startPage()
                     lines.forEach { line ->
