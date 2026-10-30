@@ -282,7 +282,7 @@ object OfficePdfConverter {
         }
     }
 
-    private data class HorizontalMerge(val row: Int, val first: Int, val last: Int)
+    private data class HorizontalMerge(val row: Int, val lastRow: Int, val first: Int, val last: Int)
 
     private fun excelHorizontalMerges(entries: Map<String, ByteArray>): List<List<HorizontalMerge>> {
         val areas = printAreas(entries)
@@ -302,11 +302,13 @@ object OfficePdfConverter {
                         val lastRow = r2.toIntOrNull() ?: 0
                         val firstCol = excelColumnIndex(a)
                         val lastCol = excelColumnIndex(b)
-                        // This first pass supports horizontal merges within a single row.
-                        if (firstRow == lastRow && firstCol < lastCol &&
-                            (area == null || (firstRow in area.firstRow..area.lastRow &&
+                        // Include rectangular merges spanning multiple rows.
+                        // The text belongs to the top-left cell only.
+                        if (firstRow <= lastRow && firstCol <= lastCol &&
+                            (area == null || (firstRow >= area.firstRow && lastRow <= area.lastRow &&
                                 firstCol >= area.firstColumn && lastCol <= area.lastColumn))) {
                             merges.add(HorizontalMerge(firstRow - (area?.firstRow ?: 1),
+                                lastRow - (area?.firstRow ?: 1),
                                 firstCol - (area?.firstColumn ?: 0),
                                 lastCol - (area?.firstColumn ?: 0)))
                         }
@@ -450,13 +452,13 @@ object OfficePdfConverter {
                 // Split tall cells across pages rather than drawing beyond the page.
                 // Keep each column's wrapped text and continue it on the next page.
                 fun drawRow(row: List<String>, headerRow: Boolean, rowIndex: Int) {
-                    val mergedAt = merges.filter { it.row == rowIndex }
+                    val mergedAt = merges.filter { rowIndex in it.row..it.lastRow }
                     val wrapped = (0 until count).map { i ->
                         val merge = mergedAt.firstOrNull { i in it.first..it.last }
                         val available = if (merge != null && merge.first == i)
                             cellWidths.subList(i, (merge.last + 1).coerceAtMost(count)).sum()
                         else cellWidths[i]
-                        if (merge != null && merge.first != i) listOf("")
+                        if (merge != null && (merge.first != i || merge.row != rowIndex)) listOf("")
                         else listOf(row.getOrNull(first + i).orEmpty().replace('\n', ' ').replace('\r', ' '))
                     }
                     var offset = 0
@@ -489,7 +491,17 @@ object OfficePdfConverter {
                             val spanWidth = if (merge != null)
                                 cellWidths.subList(i, (merge.last + 1).coerceAtMost(count)).sum()
                             else cellWidths[i]
-                            page!!.canvas.drawRect(x, y, x + spanWidth, y + rowHeight, border)
+                            // Avoid horizontal rules through vertically merged cells.
+                            // Keep the outer boundary of each merged region.
+                            if (merge != null && merge.lastRow > merge.row) {
+                                val canvas = page!!.canvas
+                                canvas.drawLine(x, y, x, y + rowHeight, border)
+                                canvas.drawLine(x + spanWidth, y, x + spanWidth, y + rowHeight, border)
+                                if (rowIndex == merge.row) canvas.drawLine(x, y, x + spanWidth, y, border)
+                                if (rowIndex == merge.lastRow) canvas.drawLine(x, y + rowHeight, x + spanWidth, y + rowHeight, border)
+                            } else {
+                                page!!.canvas.drawRect(x, y, x + spanWidth, y + rowHeight, border)
+                            }
                             val pen = if (headerRow) headerFont else font
                             val canvas = page!!.canvas
                             canvas.save()
