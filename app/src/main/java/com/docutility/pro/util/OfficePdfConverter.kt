@@ -426,7 +426,7 @@ object OfficePdfConverter {
                 val printableWidth = width - leftMargin - rightMargin
                 val preferredWidths = (0 until count).map { i ->
                     val column = first + i
-                    val originalWidth = sourceWidths.getOrNull(sheetIndex)?.get(column)
+                    val originalWidth = sourceWidths.getOrNull(sheetIndex)?.get(column + (sourceAreas[sheetIndex]?.firstColumn ?: 0))
                     if (originalWidth != null) {
                         // Excel width is measured in approximately 7-pixel characters.
                         // Preserve relative proportions; normalize to printable width below.
@@ -477,7 +477,7 @@ object OfficePdfConverter {
                         // requested height by the same effective width scaling factor.
                         // This avoids expanding a dense worksheet into extra pages.
                         val sourceTotalWidth = (0 until count).sumOf { i ->
-                            (sourceWidths.getOrNull(sheetIndex)?.get(first + i) ?: 8.43f).toDouble() * 7.0
+                            (sourceWidths.getOrNull(sheetIndex)?.get(first + i + (sourceAreas[sheetIndex]?.firstColumn ?: 0)) ?: 8.43f).toDouble() * 7.0
                         }.toFloat().coerceAtLeast(1f)
                         val effectiveScale = (printableWidth / sourceTotalWidth).coerceAtMost(1f)
                         val scaledHeight = (requestedHeight ?: 0f) * effectiveScale
