@@ -427,14 +427,20 @@ object OfficePdfConverter {
         }
     }
 
-    private data class ExcelCellStyle(val horizontal: String = "", val fill: Int? = null)
+    private data class ExcelCellStyle(val horizontal: String = "", val fill: Int? = null, val fontColor: Int? = null, val bold: Boolean = false)
     private data class ExcelStyles(val styles: List<ExcelCellStyle>, val cells: List<Map<Pair<Int, Int>, Int>>)
 
     private fun excelStyles(entries: Map<String, ByteArray>): ExcelStyles {
         val fills = mutableListOf<Int?>()
+        val fonts = mutableListOf<Pair<Int?, Boolean>>()
         val formats = mutableListOf<ExcelCellStyle>()
         entries["xl/styles.xml"]?.let { bytes ->
             val p = xmlParser(bytes)
+            var inFonts = false
+            var inFont = false
+            var fontColor: Int? = null
+            var fontBold = false
+            var currentFont = 0
             var inFills = false
             var inXfs = false
             var inFill = false
@@ -451,20 +457,27 @@ object OfficePdfConverter {
             while (p.next() != XmlPullParser.END_DOCUMENT) {
                 when (p.eventType) {
                     XmlPullParser.START_TAG -> when (p.name) {
+                        "fonts" -> inFonts = true
+                        "font" -> if (inFonts) { inFont = true; fontColor = null; fontBold = false }
+                        "b" -> if (inFont) fontBold = p.getAttributeValue(null, "val") != "0"
+                        "color" -> if (inFont) fontColor = parseRgb(p.getAttributeValue(null, "rgb"))
                         "fills" -> inFills = true
                         "cellXfs" -> inXfs = true
                         "fill" -> if (inFills) { inFill = true; fillColor = null }
                         "fgColor" -> if (inFill) fillColor = parseRgb(p.getAttributeValue(null, "rgb"))
                         "xf" -> if (inXfs) {
                             currentFill = p.getAttributeValue(null, "fillId")?.toIntOrNull() ?: 0
+                            currentFont = p.getAttributeValue(null, "fontId")?.toIntOrNull() ?: 0
                             horizontal = ""
                         }
                         "alignment" -> if (inXfs) horizontal = p.getAttributeValue(null, "horizontal").orEmpty()
                     }
                     XmlPullParser.END_TAG -> when (p.name) {
+                        "font" -> if (inFont) { fonts.add(fontColor to fontBold); inFont = false }
+                        "fonts" -> inFonts = false
                         "fill" -> if (inFill) { fills.add(fillColor); inFill = false }
                         "fills" -> inFills = false
-                        "xf" -> if (inXfs) formats.add(ExcelCellStyle(horizontal, fills.getOrNull(currentFill)))
+                        "xf" -> if (inXfs) formats.add(ExcelCellStyle(horizontal, fills.getOrNull(currentFill), fonts.getOrNull(currentFont)?.first, fonts.getOrNull(currentFont)?.second ?: false))
                         "cellXfs" -> inXfs = false
                     }
                 }
@@ -661,7 +674,10 @@ object OfficePdfConverter {
                                 val fillPaint = Paint().apply { color = fillColor; this.style = Paint.Style.FILL }
                                 canvas.drawRect(x, y, x + spanWidth, y + rowHeight, fillPaint)
                             }
-                            val pen = if (headerRow) headerFont else font
+                            val pen = Paint(if (headerRow) headerFont else font).apply {
+                                style?.fontColor?.let { color = it }
+                                if (style?.bold == true) isFakeBoldText = true
+                            }
                             canvas.save()
                             canvas.clipRect(x + 2f, y, x + spanWidth - 2f, y + rowHeight)
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
