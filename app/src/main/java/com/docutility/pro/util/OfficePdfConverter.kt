@@ -16,8 +16,8 @@ import org.xmlpull.v1.XmlPullParser
 
 /**
  * Basic, offline OOXML-to-PDF conversion. Supports DOCX paragraphs and XLSX cell
- * values; advanced formatting, embedded images, formulas and legacy DOC/XLS
- * are NOT preserved. Never claim layout-fidelity for this converter.
+ * values and some embedded images; advanced formatting, formulas and legacy
+ * DOC/XLS are not fully preserved. Never claim layout-fidelity for this converter.
  */
 object OfficePdfConverter {
     // Use Android's native streaming parser instead of DOM factory features that
@@ -950,7 +950,7 @@ object OfficePdfConverter {
                     } else {
                     startPage()
                     lines.forEach { line ->
-                        if (line.contains("\u001EIMAGE\u001F")) {
+                        if (!line.startsWith("\u001ETABLE\u001F") && line.contains("\u001EIMAGE\u001F")) {
                             val marker = Regex("\u001EIMAGE\u001F([^\u001F]+)\u001F")
                             var cursor = 0
                             for (match in marker.findAll(line)) {
@@ -978,7 +978,11 @@ object OfficePdfConverter {
                             return@forEach
                         }
                         if (line.startsWith("\u001ETABLE\u001F")) {
-                            val cells = line.substringAfter("\u001ETABLE\u001F").split("\u001F")
+                            // Images embedded inside Word table cells must not cause the
+                            // entire table row to be treated as a standalone image paragraph.
+                            val imageMarker = Regex("\u001EIMAGE\u001F([^\u001F]+)\u001F")
+                            val tableImageIds = imageMarker.findAll(line).map { it.groupValues[1] }.toList()
+                            val cells = imageMarker.replace(line.substringAfter("\u001ETABLE\u001F"), "").split("\u001F")
                             val count = cells.size.coerceAtLeast(1)
                             val left = 40f
                             val available = width - 80f
@@ -1010,6 +1014,21 @@ object OfficePdfConverter {
                                 }
                             }
                             y = top + rowHeight + 12f
+                            // Render table-cell images after their row rather than dropping
+                            // them. Precise placement within cells is a future improvement.
+                            tableImageIds.forEach { id ->
+                                val bytes = wordPictures[id] ?: return@forEach
+                                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@forEach
+                                try {
+                                    val drawWidth = minOf(width - 80f, bitmap.width.toFloat())
+                                    val drawHeight = (drawWidth * bitmap.height / bitmap.width).coerceAtMost(height - 100f)
+                                    if (page == null || y + drawHeight > height - 45f) startPage()
+                                    page!!.canvas.drawBitmap(bitmap, null,
+                                        RectF(40f, y, 40f + drawWidth, y + drawHeight),
+                                        Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                                    y += drawHeight + 12f
+                                } finally { bitmap.recycle() }
+                            }
                             return@forEach
                         }
                         if (line.isBlank()) { drawLine(" "); return@forEach }
