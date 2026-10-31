@@ -98,8 +98,53 @@ object OfficePdfConverter {
         return result
     }
 
-    private fun wordLines(entries: Map<String, ByteArray>): List<String> =
-        groupedText(entries["word/document.xml"] ?: error("Invalid DOCX file"), "p", "t")
+    // Read Word paragraphs and table rows in document order. A table row is kept
+    // as one unit instead of flattening each cell into a separate paragraph.
+    private fun wordLines(entries: Map<String, ByteArray>): List<String> {
+        val parser = xmlParser(entries["word/document.xml"] ?: error("Invalid DOCX file"))
+        val result = mutableListOf<String>()
+        var tableDepth = 0
+        var rowDepth = 0
+        var cellDepth = 0
+        var paragraphDepth = 0
+        var textDepth = 0
+        var paragraph = StringBuilder()
+        var cell = StringBuilder()
+        val row = mutableListOf<String>()
+        while (parser.next() != XmlPullParser.END_DOCUMENT) {
+            when (parser.eventType) {
+                XmlPullParser.START_TAG -> when (parser.name) {
+                    "tbl" -> tableDepth++
+                    "tr" -> { rowDepth++; if (rowDepth == 1) row.clear() }
+                    "tc" -> { cellDepth++; if (cellDepth == 1) cell = StringBuilder() }
+                    "p" -> { paragraphDepth++; if (paragraphDepth == 1) paragraph = StringBuilder() }
+                    "t" -> textDepth++
+                    "tab" -> if (paragraphDepth > 0) paragraph.append("    ")
+                    "br" -> if (paragraphDepth > 0) paragraph.append(" ")
+                }
+                XmlPullParser.TEXT -> if (textDepth > 0) paragraph.append(parser.text)
+                XmlPullParser.END_TAG -> when (parser.name) {
+                    "t" -> textDepth--
+                    "p" -> {
+                        if (paragraphDepth == 1) {
+                            if (cellDepth > 0) {
+                                if (cell.isNotEmpty()) cell.append(' ')
+                                cell.append(paragraph)
+                            } else if (tableDepth == 0) result.add(paragraph.toString())
+                        }
+                        paragraphDepth--
+                    }
+                    "tc" -> { if (cellDepth == 1) row.add(cell.toString().trim()); cellDepth-- }
+                    "tr" -> {
+                        if (rowDepth == 1 && row.isNotEmpty()) result.add("\u001ETABLE\u001F" + row.joinToString("\u001F"))
+                        rowDepth--
+                    }
+                    "tbl" -> tableDepth--
+                }
+            }
+        }
+        return result
+    }
 
     private data class PrintArea(val firstColumn: Int, val lastColumn: Int, val firstRow: Int, val lastRow: Int)
 
@@ -882,6 +927,41 @@ object OfficePdfConverter {
                     } else {
                     startPage()
                     lines.forEach { line ->
+                        if (line.startsWith("\u001ETABLE\u001F")) {
+                            val cells = line.substringAfter("\u001ETABLE\u001F").split("\u001F")
+                            val count = cells.size.coerceAtLeast(1)
+                            val left = 40f
+                            val available = width - 80f
+                            val cellWidth = available / count
+                            val tablePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                                color = Color.LTGRAY
+                                style = Paint.Style.STROKE
+                                strokeWidth = 0.7f
+                            }
+                            val wrapped = cells.map { value ->
+                                val pieces = mutableListOf<String>()
+                                var rest = value
+                                while (rest.isNotEmpty()) {
+                                    val limit = paint.breakText(rest, true, (cellWidth - 8f).coerceAtLeast(5f), null).coerceAtLeast(1)
+                                    val split = if (limit < rest.length) rest.lastIndexOf(' ', limit - 1).takeIf { it > 0 } ?: limit else limit
+                                    pieces.add(rest.substring(0, split).trimEnd())
+                                    rest = rest.substring(split).trimStart()
+                                }
+                                pieces.ifEmpty { listOf("") }
+                            }
+                            val rowHeight = wrapped.maxOf { it.size } * 16f + 10f
+                            if (page == null || y + rowHeight > height - 45f) startPage()
+                            val top = y - 12f
+                            wrapped.forEachIndexed { index, values ->
+                                val x = left + index * cellWidth
+                                page!!.canvas.drawRect(x, top, x + cellWidth, top + rowHeight, tablePaint)
+                                values.forEachIndexed { n, value ->
+                                    page!!.canvas.drawText(value, x + 4f, y + n * 16f, paint)
+                                }
+                            }
+                            y = top + rowHeight + 12f
+                            return@forEach
+                        }
                         if (line.isBlank()) { drawLine(" "); return@forEach }
                         var remaining = line.trim()
                         while (remaining.isNotEmpty()) {
