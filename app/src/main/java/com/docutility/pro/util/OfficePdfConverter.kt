@@ -143,20 +143,38 @@ object OfficePdfConverter {
         // Strip quoted literals and bracketed colour/condition sections before classification.
         val pattern = custom.replace(Regex("\\\"[^\\\"]*\\\""), "")
             .replace(Regex("\\\\[[^]]*]"), "").lowercase(java.util.Locale.US)
-        val dateLike = id in 14..22 || id in 45..47 ||
+        // Only date-only formats should convert serial values into calendar dates.
+        // Excel time/duration formats (18-21, 45-47 and [h]:mm) must never
+        // produce an 1899/1900 date for ordinary elapsed-hour measurements.
+        val dateLike = id in 14..17 || id == 22 ||
             (custom.isNotBlank() && pattern.contains(Regex("[dy]")) &&
                 !pattern.contains(Regex("[a-z]0")))
         if (dateLike && number >= 0.0 && number < 2958466.0) {
-            // Excel's 1900 date system contains a fictitious 29 February 1900.
             val days = kotlin.math.floor(number).toLong()
             val millis = (days - if (days < 60) 25568L else 25569L) * 86400000L
             val fraction = ((number - days) * 86400000.0).toLong()
             val formatter = java.text.SimpleDateFormat(
-                if (id in 45..47 || (pattern.contains("h") && !pattern.contains("d") && !pattern.contains("y"))) "HH:mm:ss"
-                else if (pattern.contains("h")) "dd/MM/yyyy HH:mm"
-                else "dd/MM/yyyy", java.util.Locale.US)
+                if (id == 22 || pattern.contains("h")) "dd/MM/yyyy HH:mm" else "dd/MM/yyyy",
+                java.util.Locale.US)
             formatter.timeZone = java.util.TimeZone.getTimeZone("UTC")
             return formatter.format(java.util.Date(millis + fraction))
+        }
+        val elapsed = custom.contains("[h]", ignoreCase = true) ||
+            custom.contains("[m]", ignoreCase = true) ||
+            custom.contains("[s]", ignoreCase = true)
+        val timeOnly = id in 18..21 || id in 45..47 ||
+            (custom.isNotBlank() && !dateLike && pattern.contains("h") &&
+                (pattern.contains("m") || pattern.contains("s")))
+        if ((elapsed || timeOnly) && number >= 0.0) {
+            val totalSeconds = kotlin.math.round(number * 86400.0).toLong()
+            val hours = if (elapsed) totalSeconds / 3600 else (totalSeconds / 3600) % 24
+            val minutes = (totalSeconds / 60) % 60
+            val seconds = totalSeconds % 60
+            return if (id == 45 || (pattern.contains("mm:ss") && !pattern.contains("h")))
+                String.format(java.util.Locale.US, "%02d:%02d", totalSeconds / 60, seconds)
+            else if (id == 46 || id == 47 || pattern.contains("ss"))
+                String.format(java.util.Locale.US, "%02d:%02d:%02d", hours, minutes, seconds)
+            else String.format(java.util.Locale.US, "%02d:%02d", hours, minutes)
         }
         if (id == 9 || id == 10 || pattern.contains("%")) {
             val decimals = if (id == 10 || pattern.contains("0.00%")) 2 else 0
