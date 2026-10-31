@@ -1,6 +1,8 @@
 package com.docutility.pro.util
 
 import android.content.Context
+import android.graphics.BitmapFactory
+import android.graphics.RectF
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
@@ -341,7 +343,91 @@ object OfficePdfConverter {
         }
     }
 
-    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>, sourceMargins: List<SourceMargins>, sourceRowHeights: List<Map<Int, Float>>, sourceAreas: Map<Int, PrintArea>) {
+    private data class ExcelPicture(val column: Int, val row: Int, val bytes: ByteArray)
+
+    /** Resolve drawing relationship IDs to embedded image bytes, entirely offline. */
+    private fun excelPictures(entries: Map<String, ByteArray>): List<List<ExcelPicture>> {
+        val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
+        return sheets.map { sheetName ->
+            val sheetNumber = sheetName.substringAfter("sheet").substringBefore(".")
+            val sheetRels = mutableMapOf<String, String>()
+            val relPath = "xl/worksheets/_rels/sheet$sheetNumber.xml.rels"
+            entries[relPath]?.let { bytes ->
+                val parser = xmlParser(bytes)
+                while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                    if (parser.eventType == XmlPullParser.START_TAG && parser.name == "Relationship") {
+                        val id = parser.getAttributeValue(null, "Id")
+                        val target = parser.getAttributeValue(null, "Target")
+                        if (id != null && target != null) sheetRels[id] = target
+                    }
+                }
+            }
+            val sheetParser = xmlParser(entries.getValue(sheetName))
+            val drawingIds = mutableListOf<String>()
+            while (sheetParser.next() != XmlPullParser.END_DOCUMENT) {
+                if (sheetParser.eventType == XmlPullParser.START_TAG && sheetParser.name == "drawing") {
+                    sheetParser.getAttributeValue(
+                        "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id"
+                    )?.let { drawingIds.add(it) }
+                }
+            }
+            val pictures = mutableListOf<ExcelPicture>()
+            drawingIds.forEach { drawingId ->
+                val target = sheetRels[drawingId] ?: return@forEach
+                val drawingPath = "xl/drawings/" + target.substringAfterLast("/")
+                val drawing = entries[drawingPath] ?: return@forEach
+                val rels = mutableMapOf<String, String>()
+                val drawingRels = drawingPath.substringBeforeLast("/") + "/_rels/" +
+                    drawingPath.substringAfterLast("/") + ".rels"
+                entries[drawingRels]?.let { bytes ->
+                    val parser = xmlParser(bytes)
+                    while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                        if (parser.eventType == XmlPullParser.START_TAG && parser.name == "Relationship") {
+                            val id = parser.getAttributeValue(null, "Id")
+                            val imageTarget = parser.getAttributeValue(null, "Target")
+                            if (id != null && imageTarget != null && !imageTarget.contains("://"))
+                                rels[id] = "xl/media/" + imageTarget.substringAfterLast("/")
+                        }
+                    }
+                }
+                val parser = xmlParser(drawing)
+                var inFrom = false
+                var field = ""
+                var row = -1
+                var column = -1
+                var embed: String? = null
+                while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                    when (parser.eventType) {
+                        XmlPullParser.START_TAG -> when (parser.name) {
+                            "oneCellAnchor", "twoCellAnchor" -> { row = -1; column = -1; embed = null }
+                            "from" -> inFrom = true
+                            "row", "col" -> if (inFrom) field = parser.name
+                            "blip" -> embed = parser.getAttributeValue(
+                                "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed")
+                        }
+                        XmlPullParser.TEXT -> if (inFrom) {
+                            if (field == "row") row = parser.text.toIntOrNull() ?: row
+                            if (field == "col") column = parser.text.toIntOrNull() ?: column
+                        }
+                        XmlPullParser.END_TAG -> when (parser.name) {
+                            "from" -> { inFrom = false; field = "" }
+                            "row", "col" -> field = ""
+                            "pic" -> {
+                                val bytes = embed?.let { rels[it] }?.let { entries[it] }
+                                if (row >= 0 && column >= 0 && bytes != null && bytes.size <= 8 * 1024 * 1024)
+                                    pictures.add(ExcelPicture(column, row, bytes))
+                                embed = null
+                            }
+                        }
+                    }
+                }
+            }
+            pictures
+        }
+    }
+
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>, sourceMargins: List<SourceMargins>, sourceRowHeights: List<Map<Int, Float>>, sourceAreas: Map<Int, PrintArea>, sourcePictures: List<List<ExcelPicture>>) {
         // A4 at 72 PDF points per inch, with selectable print orientation.
         var width = if (landscape) 842 else 595
         var height = if (landscape) 595 else 842
@@ -517,12 +603,40 @@ object OfficePdfConverter {
                     }
                 }
                 newPage(label)
+                val pictureRows = sourcePictures.getOrNull(sheetIndex).orEmpty()
+                    .groupBy { it.row - ((sourceAreas[sheetIndex]?.firstRow ?: 1) - 1) }
                 tileRows.forEachIndexed { rowIndex, row ->
+                    val pictureY = y
+                    val picturePage = page
+
                     // Repeat the first worksheet row as a header on ordinary page breaks.
                     if (y >= bottom - minimumRowHeight) {
                         newPage(label)
                     }
                     drawRow(row, rowIndex == 0, rowIndex)
+                    // Paint anchored images on their row, without altering the row pagination.
+                    // Precise image extents and floating positioning require a later layout pass.
+                    if (page === picturePage) {
+                        pictureRows[rowIndex]?.forEach { picture ->
+                            val col = picture.column - (sourceAreas[sheetIndex]?.firstColumn ?: 0)
+                            if (col in first until (first + count)) {
+                                val local = col - first
+                                val bitmap = BitmapFactory.decodeByteArray(
+                                    picture.bytes, 0, picture.bytes.size
+                                ) ?: return@forEach
+                                try {
+                                    val w = minOf(cellWidths.drop(local).take(3).sum(), bitmap.width.toFloat())
+                                    val h = minOf(w * bitmap.height / bitmap.width, (y - pictureY).coerceAtLeast(0f))
+                                    if (w > 0f && h > 0f) {
+                                        page?.canvas?.drawBitmap(bitmap, null,
+                                            RectF(cellStarts[local], pictureY,
+                                                cellStarts[local] + w, pictureY + h),
+                                            Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                                    }
+                                } finally { bitmap.recycle() }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -600,7 +714,7 @@ object OfficePdfConverter {
                             }
                             direction
                         }
-                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries), excelPageMargins(entries), excelRowHeights(entries), printAreas(entries))
+                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries), excelPageMargins(entries), excelRowHeights(entries), printAreas(entries), excelPictures(entries))
                     } else {
                     startPage()
                     lines.forEach { line ->
