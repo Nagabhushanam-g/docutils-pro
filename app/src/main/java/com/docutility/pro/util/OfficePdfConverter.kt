@@ -721,6 +721,15 @@ object OfficePdfConverter {
                             val spanWidth = if (merge != null)
                                 cellWidths.subList(i, (merge.last + 1).coerceAtMost(count)).sum()
                             else cellWidths[i]
+                            val canvas = page!!.canvas
+                            val sourceRow = rowIndex + (sourceAreas[sheetIndex]?.firstRow ?: 1) - 1
+                            val sourceCol = first + i + (sourceAreas[sheetIndex]?.firstColumn ?: 0)
+                            val styleId = excelStyles.cells.getOrNull(sheetIndex)?.get(sourceRow to sourceCol)
+                            val style = styleId?.let { excelStyles.styles.getOrNull(it) }
+                            style?.fill?.let { fillColor ->
+                                val fillPaint = Paint().apply { color = fillColor; this.style = Paint.Style.FILL }
+                                canvas.drawRect(x, y, x + spanWidth, y + rowHeight, fillPaint)
+                            }
                             // Avoid horizontal rules through vertically merged cells.
                             // Keep the outer boundary of each merged region.
                             if (merge != null && merge.lastRow > merge.row) {
@@ -731,15 +740,6 @@ object OfficePdfConverter {
                                 if (rowIndex == merge.lastRow) canvas.drawLine(x, y + rowHeight, x + spanWidth, y + rowHeight, border)
                             } else {
                                 page!!.canvas.drawRect(x, y, x + spanWidth, y + rowHeight, border)
-                            }
-                            val canvas = page!!.canvas
-                            val sourceRow = rowIndex + (sourceAreas[sheetIndex]?.firstRow ?: 1) - 1
-                            val sourceCol = first + i + (sourceAreas[sheetIndex]?.firstColumn ?: 0)
-                            val styleId = excelStyles.cells.getOrNull(sheetIndex)?.get(sourceRow to sourceCol)
-                            val style = styleId?.let { excelStyles.styles.getOrNull(it) }
-                            style?.fill?.let { fillColor ->
-                                val fillPaint = Paint().apply { color = fillColor; this.style = Paint.Style.FILL }
-                                canvas.drawRect(x, y, x + spanWidth, y + rowHeight, fillPaint)
                             }
                             val pen = Paint(if (headerRow) headerFont else font).apply {
                                 style?.fontColor?.let { color = it }
