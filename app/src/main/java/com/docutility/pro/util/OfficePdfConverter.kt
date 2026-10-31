@@ -100,6 +100,23 @@ object OfficePdfConverter {
 
     // Read Word paragraphs and table rows in document order. A table row is kept
     // as one unit instead of flattening each cell into a separate paragraph.
+    private fun wordImages(entries: Map<String, ByteArray>): Map<String, ByteArray> {
+        val rels = entries["word/_rels/document.xml.rels"] ?: return emptyMap()
+        val result = mutableMapOf<String, ByteArray>()
+        val p = xmlParser(rels)
+        while (p.next() != XmlPullParser.END_DOCUMENT) {
+            if (p.eventType != XmlPullParser.START_TAG || p.name != "Relationship") continue
+            val id = p.getAttributeValue(null, "Id") ?: continue
+            val target = p.getAttributeValue(null, "Target") ?: continue
+            if (!p.getAttributeValue(null, "Type").orEmpty().endsWith("/image") ||
+                p.getAttributeValue(null, "TargetMode") == "External") continue
+            val name = target.substringAfterLast("/")
+            if (!name.matches(Regex("[A-Za-z0-9_.-]+"))) continue
+            entries["word/media/$name"]?.takeIf { it.size <= 8 * 1024 * 1024 }?.let { result[id] = it }
+        }
+        return result
+    }
+
     private fun wordLines(entries: Map<String, ByteArray>): List<String> {
         val parser = xmlParser(entries["word/document.xml"] ?: error("Invalid DOCX file"))
         val result = mutableListOf<String>()
@@ -119,6 +136,11 @@ object OfficePdfConverter {
                     "tc" -> { cellDepth++; if (cellDepth == 1) cell = StringBuilder() }
                     "p" -> { paragraphDepth++; if (paragraphDepth == 1) paragraph = StringBuilder() }
                     "t" -> textDepth++
+                    "blip" -> {
+                        val id = parser.getAttributeValue(
+                            "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed")
+                        if (id != null && paragraphDepth > 0) paragraph.append("\u001EIMAGE\u001F").append(id).append("\u001F")
+                    }
                     "tab" -> if (paragraphDepth > 0) paragraph.append("    ")
                     "br" -> if (paragraphDepth > 0) paragraph.append(" ")
                 }
@@ -861,6 +883,7 @@ object OfficePdfConverter {
                 }
                 val entries = zipEntries(context, uri)
                 val lines = if (extension == "docx") wordLines(entries) else emptyList()
+                val wordPictures = if (extension == "docx") wordImages(entries) else emptyMap()
                 if (extension == "docx") require(lines.isNotEmpty()) { "Document has no readable content" }
                 val pdf = PdfDocument()
                 val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.BLACK; textSize = 12f }
@@ -927,6 +950,33 @@ object OfficePdfConverter {
                     } else {
                     startPage()
                     lines.forEach { line ->
+                        if (line.contains("\u001EIMAGE\u001F")) {
+                            val marker = Regex("\u001EIMAGE\u001F([^\u001F]+)\u001F")
+                            var cursor = 0
+                            for (match in marker.findAll(line)) {
+                                val before = line.substring(cursor, match.range.first).trim()
+                                if (before.isNotEmpty()) drawLine(before.take(180))
+                                val bytes = wordPictures[match.groupValues[1]]
+                                if (bytes != null) {
+                                    val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                    if (bitmap != null) {
+                                        try {
+                                            val w = minOf(width - 80f, bitmap.width.toFloat())
+                                            val h = (w * bitmap.height / bitmap.width).coerceAtMost(height - 100f)
+                                            if (page == null || y + h > height - 45f) startPage()
+                                            page!!.canvas.drawBitmap(bitmap, null,
+                                                RectF(40f, y, 40f + w, y + h),
+                                                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                                            y += h + 12f
+                                        } finally { bitmap.recycle() }
+                                    }
+                                }
+                                cursor = match.range.last + 1
+                            }
+                            val after = line.substring(cursor).trim()
+                            if (after.isNotEmpty()) drawLine(after.take(180))
+                            return@forEach
+                        }
                         if (line.startsWith("\u001ETABLE\u001F")) {
                             val cells = line.substringAfter("\u001ETABLE\u001F").split("\u001F")
                             val count = cells.size.coerceAtLeast(1)
