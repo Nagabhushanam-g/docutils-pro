@@ -135,8 +135,47 @@ object OfficePdfConverter {
         return areas
     }
 
+    private fun formatExcelValue(raw: String, styleId: Int?, styles: ExcelStyles): String {
+        val number = raw.toDoubleOrNull() ?: return raw
+        if (!number.isFinite()) return raw
+        val id = styleId?.let { styles.styles.getOrNull(it)?.numberFormat } ?: 0
+        val custom = styles.customFormats[id].orEmpty()
+        // Strip quoted literals and bracketed colour/condition sections before classification.
+        val pattern = custom.replace(Regex("\\\"[^\\\"]*\\\""), "")
+            .replace(Regex("\\\\[[^]]*]"), "").lowercase(java.util.Locale.US)
+        val dateLike = id in 14..22 || id in 45..47 ||
+            (custom.isNotBlank() && pattern.contains(Regex("[dy]")) &&
+                !pattern.contains(Regex("[a-z]0")))
+        if (dateLike && number >= 0.0 && number < 2958466.0) {
+            // Excel's 1900 date system contains a fictitious 29 February 1900.
+            val days = kotlin.math.floor(number).toLong()
+            val millis = (days - if (days < 60) 25568L else 25569L) * 86400000L
+            val fraction = ((number - days) * 86400000.0).toLong()
+            val formatter = java.text.SimpleDateFormat(
+                if (id in 45..47 || (pattern.contains("h") && !pattern.contains("d") && !pattern.contains("y"))) "HH:mm:ss"
+                else if (pattern.contains("h")) "dd/MM/yyyy HH:mm"
+                else "dd/MM/yyyy", java.util.Locale.US)
+            formatter.timeZone = java.util.TimeZone.getTimeZone("UTC")
+            return formatter.format(java.util.Date(millis + fraction))
+        }
+        if (id == 9 || id == 10 || pattern.contains("%")) {
+            val decimals = if (id == 10 || pattern.contains("0.00%")) 2 else 0
+            return String.format(java.util.Locale.US, "%." + decimals + "f%%", number * 100)
+        }
+        if (id == 1 || id == 2 || id == 3 || id == 4 || id in 37..40 ||
+            (custom.isNotBlank() && pattern.contains("0") && !pattern.contains("e+"))) {
+            val decimalPart = pattern.substringAfter('.', "").takeWhile { it == '0' || it == '#' }
+            val decimals = when (id) { 1, 3, 37, 38 -> 0; 2, 4, 39, 40 -> 2; else -> decimalPart.count { it == '0' }.coerceIn(0, 8) }
+            val grouping = id in listOf(3, 4, 37, 38, 39, 40) || pattern.contains(",")
+            return if (grouping) String.format(java.util.Locale.US, "%,." + decimals + "f", number)
+                else String.format(java.util.Locale.US, "%." + decimals + "f", number)
+        }
+        return raw
+    }
+
     private fun excelRows(entries: Map<String, ByteArray>): List<Pair<String, List<List<String>>>> {
         val areas = printAreas(entries)
+        val styles = excelStyles(entries)
         val strings = entries["xl/sharedStrings.xml"]?.let { groupedText(it, "si", "t") }.orEmpty()
         val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
             .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
@@ -151,6 +190,7 @@ object OfficePdfConverter {
             var nextColumn = 0
             var column = 0
             var cellType = ""
+            var cellStyleId: Int? = null
             var value = StringBuilder()
             var reading = false
             var inCell = false
@@ -179,6 +219,7 @@ object OfficePdfConverter {
                         "c" -> {
                             inCell = true
                             cellType = parser.getAttributeValue(null, "t").orEmpty()
+                            cellStyleId = parser.getAttributeValue(null, "s")?.toIntOrNull()
                             val ref = parser.getAttributeValue(null, "r").orEmpty()
                             val letters = ref.takeWhile { it.isLetter() }.uppercase()
                             column = if (letters.isEmpty()) nextColumn else
@@ -193,7 +234,7 @@ object OfficePdfConverter {
                         "v", "t" -> reading = false
                         "c" -> {
                             val raw = value.toString()
-                            val text = if (cellType == "s") strings.getOrNull(raw.toIntOrNull() ?: -1).orEmpty() else raw
+                            val text = if (cellType == "s") strings.getOrNull(raw.toIntOrNull() ?: -1).orEmpty() else if (cellType.isBlank() || cellType == "n") formatExcelValue(raw, cellStyleId, styles) else raw
                             if (text.isNotBlank() && column in 0..255 && (area == null || (rowNumber in area.firstRow..area.lastRow && column in area.firstColumn..area.lastColumn))) cells[column] = text
                             inCell = false
                         }
@@ -427,13 +468,14 @@ object OfficePdfConverter {
         }
     }
 
-    private data class ExcelCellStyle(val horizontal: String = "", val fill: Int? = null, val fontColor: Int? = null, val bold: Boolean = false)
-    private data class ExcelStyles(val styles: List<ExcelCellStyle>, val cells: List<Map<Pair<Int, Int>, Int>>)
+    private data class ExcelCellStyle(val horizontal: String = "", val fill: Int? = null, val fontColor: Int? = null, val bold: Boolean = false, val numberFormat: Int = 0)
+    private data class ExcelStyles(val styles: List<ExcelCellStyle>, val cells: List<Map<Pair<Int, Int>, Int>>, val customFormats: Map<Int, String>)
 
     private fun excelStyles(entries: Map<String, ByteArray>): ExcelStyles {
         val fills = mutableListOf<Int?>()
         val fonts = mutableListOf<Pair<Int?, Boolean>>()
         val formats = mutableListOf<ExcelCellStyle>()
+        val customFormats = mutableMapOf<Int, String>()
         entries["xl/styles.xml"]?.let { bytes ->
             val p = xmlParser(bytes)
             var inFonts = false
@@ -441,6 +483,7 @@ object OfficePdfConverter {
             var fontColor: Int? = null
             var fontBold = false
             var currentFont = 0
+            var currentNumberFormat = 0
             var inFills = false
             var inXfs = false
             var inFill = false
@@ -457,6 +500,11 @@ object OfficePdfConverter {
             while (p.next() != XmlPullParser.END_DOCUMENT) {
                 when (p.eventType) {
                     XmlPullParser.START_TAG -> when (p.name) {
+                        "numFmt" -> {
+                            val id = p.getAttributeValue(null, "numFmtId")?.toIntOrNull()
+                            val code = p.getAttributeValue(null, "formatCode")
+                            if (id != null && code != null) customFormats[id] = code
+                        }
                         "fonts" -> inFonts = true
                         "font" -> if (inFonts) { inFont = true; fontColor = null; fontBold = false }
                         "b" -> if (inFont) fontBold = p.getAttributeValue(null, "val") != "0"
@@ -468,6 +516,7 @@ object OfficePdfConverter {
                         "xf" -> if (inXfs) {
                             currentFill = p.getAttributeValue(null, "fillId")?.toIntOrNull() ?: 0
                             currentFont = p.getAttributeValue(null, "fontId")?.toIntOrNull() ?: 0
+                            currentNumberFormat = p.getAttributeValue(null, "numFmtId")?.toIntOrNull() ?: 0
                             horizontal = ""
                         }
                         "alignment" -> if (inXfs) horizontal = p.getAttributeValue(null, "horizontal").orEmpty()
@@ -477,7 +526,7 @@ object OfficePdfConverter {
                         "fonts" -> inFonts = false
                         "fill" -> if (inFill) { fills.add(fillColor); inFill = false }
                         "fills" -> inFills = false
-                        "xf" -> if (inXfs) formats.add(ExcelCellStyle(horizontal, fills.getOrNull(currentFill), fonts.getOrNull(currentFont)?.first, fonts.getOrNull(currentFont)?.second ?: false))
+                        "xf" -> if (inXfs) formats.add(ExcelCellStyle(horizontal, fills.getOrNull(currentFill), fonts.getOrNull(currentFont)?.first, fonts.getOrNull(currentFont)?.second ?: false, currentNumberFormat))
                         "cellXfs" -> inXfs = false
                     }
                 }
@@ -501,7 +550,7 @@ object OfficePdfConverter {
             }
             result
         }
-        return ExcelStyles(formats, maps)
+        return ExcelStyles(formats, maps, customFormats)
     }
 
     private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>, sourceMargins: List<SourceMargins>, sourceRowHeights: List<Map<Int, Float>>, sourceAreas: Map<Int, PrintArea>, sourcePictures: List<List<ExcelPicture>>, excelStyles: ExcelStyles) {
