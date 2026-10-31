@@ -427,7 +427,71 @@ object OfficePdfConverter {
         }
     }
 
-    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>, sourceMargins: List<SourceMargins>, sourceRowHeights: List<Map<Int, Float>>, sourceAreas: Map<Int, PrintArea>, sourcePictures: List<List<ExcelPicture>>) {
+    private data class ExcelCellStyle(val horizontal: String = "", val fill: Int? = null)
+    private data class ExcelStyles(val styles: List<ExcelCellStyle>, val cells: List<Map<Pair<Int, Int>, Int>>)
+
+    private fun excelStyles(entries: Map<String, ByteArray>): ExcelStyles {
+        val fills = mutableListOf<Int?>()
+        val formats = mutableListOf<ExcelCellStyle>()
+        entries["xl/styles.xml"]?.let { bytes ->
+            val p = xmlParser(bytes)
+            var inFills = false
+            var inXfs = false
+            var inFill = false
+            var fillColor: Int? = null
+            var currentFill = 0
+            var horizontal = ""
+            fun parseRgb(value: String?): Int? {
+                if (value == null) return null
+                val hex = value.takeLast(6)
+                return if (hex.length == 6 && hex.all { it in "0123456789abcdefABCDEF" })
+                    Color.rgb(hex.substring(0, 2).toInt(16), hex.substring(2, 4).toInt(16),
+                        hex.substring(4, 6).toInt(16)) else null
+            }
+            while (p.next() != XmlPullParser.END_DOCUMENT) {
+                when (p.eventType) {
+                    XmlPullParser.START_TAG -> when (p.name) {
+                        "fills" -> inFills = true
+                        "cellXfs" -> inXfs = true
+                        "fill" -> if (inFills) { inFill = true; fillColor = null }
+                        "fgColor" -> if (inFill) fillColor = parseRgb(p.getAttributeValue(null, "rgb"))
+                        "xf" -> if (inXfs) {
+                            currentFill = p.getAttributeValue(null, "fillId")?.toIntOrNull() ?: 0
+                            horizontal = ""
+                        }
+                        "alignment" -> if (inXfs) horizontal = p.getAttributeValue(null, "horizontal").orEmpty()
+                    }
+                    XmlPullParser.END_TAG -> when (p.name) {
+                        "fill" -> if (inFill) { fills.add(fillColor); inFill = false }
+                        "fills" -> inFills = false
+                        "xf" -> if (inXfs) formats.add(ExcelCellStyle(horizontal, fills.getOrNull(currentFill)))
+                        "cellXfs" -> inXfs = false
+                    }
+                }
+            }
+        }
+        val sheets = entries.keys.filter { Regex("xl/worksheets/sheet[0-9]+[.]xml").matches(it) }
+            .sortedBy { it.substringAfter("sheet").substringBefore(".").toIntOrNull() ?: 0 }
+        val maps = sheets.map { name ->
+            val result = mutableMapOf<Pair<Int, Int>, Int>()
+            val p = xmlParser(entries.getValue(name))
+            while (p.next() != XmlPullParser.END_DOCUMENT) {
+                if (p.eventType == XmlPullParser.START_TAG && p.name == "c") {
+                    val ref = p.getAttributeValue(null, "r").orEmpty()
+                    val col = ref.takeWhile { it.isLetter() }.uppercase()
+                        .fold(0) { n, ch -> n * 26 + (ch - 'A' + 1) } - 1
+                    val row = ref.dropWhile { it.isLetter() }.toIntOrNull() ?: 0
+                    val style = p.getAttributeValue(null, "s")?.toIntOrNull()
+                    if (style != null && row > 0 && col >= 0 && result.size < 100000)
+                        result[(row - 1) to col] = style
+                }
+            }
+            result
+        }
+        return ExcelStyles(formats, maps)
+    }
+
+    private fun renderExcel(pdf: PdfDocument, sheets: List<Pair<String, List<List<String>>>>, landscape: Boolean, sheetOrientations: List<Boolean?>, sourceWidths: List<Map<Int, Float>>, sourceMerges: List<List<HorizontalMerge>>, sourceMargins: List<SourceMargins>, sourceRowHeights: List<Map<Int, Float>>, sourceAreas: Map<Int, PrintArea>, sourcePictures: List<List<ExcelPicture>>, excelStyles: ExcelStyles) {
         // A4 at 72 PDF points per inch, with selectable print orientation.
         var width = if (landscape) 842 else 595
         var height = if (landscape) 595 else 842
@@ -588,12 +652,26 @@ object OfficePdfConverter {
                             } else {
                                 page!!.canvas.drawRect(x, y, x + spanWidth, y + rowHeight, border)
                             }
-                            val pen = if (headerRow) headerFont else font
                             val canvas = page!!.canvas
+                            val sourceRow = rowIndex + (sourceAreas[sheetIndex]?.firstRow ?: 1) - 1
+                            val sourceCol = first + i + (sourceAreas[sheetIndex]?.firstColumn ?: 0)
+                            val styleId = excelStyles.cells.getOrNull(sheetIndex)?.get(sourceRow to sourceCol)
+                            val style = styleId?.let { excelStyles.styles.getOrNull(it) }
+                            style?.fill?.let { fillColor ->
+                                val fillPaint = Paint().apply { color = fillColor; this.style = Paint.Style.FILL }
+                                canvas.drawRect(x, y, x + spanWidth, y + rowHeight, fillPaint)
+                            }
+                            val pen = if (headerRow) headerFont else font
                             canvas.save()
                             canvas.clipRect(x + 2f, y, x + spanWidth - 2f, y + rowHeight)
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
-                                canvas.drawText(line, x + 2f, y + cellFontSize + 2f + lineIndex * lineHeight, pen)
+                                val textWidth = pen.measureText(line)
+                                val textX = when (style?.horizontal) {
+                                    "center", "centerContinuous" -> x + (spanWidth - textWidth) / 2f
+                                    "right" -> x + spanWidth - textWidth - 2f
+                                    else -> x + 2f
+                                }
+                                canvas.drawText(line, textX, y + cellFontSize + 2f + lineIndex * lineHeight, pen)
                             }
                             canvas.restore()
                         }
@@ -717,7 +795,7 @@ object OfficePdfConverter {
                             }
                             direction
                         }
-                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries), excelPageMargins(entries), excelRowHeights(entries), printAreas(entries), excelPictures(entries))
+                        renderExcel(pdf, excelRows(entries), sourceLandscape ?: landscape, orientations, excelColumnWidths(entries), excelHorizontalMerges(entries), excelPageMargins(entries), excelRowHeights(entries), printAreas(entries), excelPictures(entries), excelStyles(entries))
                     } else {
                     startPage()
                     lines.forEach { line ->
