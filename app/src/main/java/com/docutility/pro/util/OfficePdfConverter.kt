@@ -766,7 +766,6 @@ object OfficePdfConverter {
                 newPage(label)
                 // Draw rows first; render pictures afterwards so subsequent grid cells do
                 // not paint over images. Clamp anchors above the print area to its edge.
-                val picturePositions = mutableListOf<Triple<ExcelPicture, Float, PdfDocument.Page>>()
                 val firstSourceRow = (sourceAreas[sheetIndex]?.firstRow ?: 1) - 1
                 val firstSourceCol = sourceAreas[sheetIndex]?.firstColumn ?: 0
                 val picturesByRow = sourcePictures.getOrNull(sheetIndex).orEmpty()
@@ -777,31 +776,32 @@ object OfficePdfConverter {
                     val rowPage = page
                     drawRow(row, rowIndex == 0, rowIndex)
                     if (rowPage === page && rowPage != null) {
-                        picturesByRow[rowIndex]?.forEach { picture ->
-                            picturePositions.add(Triple(picture, rowTop, rowPage))
-                        }
+                    picturesByRow[rowIndex]?.forEach { picture ->
+                        val pictureY = rowTop
+                        val picturePage = rowPage ?: return@forEach
+                        val col = (picture.column - firstSourceCol).coerceAtLeast(0)
+                        if (col !in first until (first + count)) return@forEach
+                        val local = col - first
+                        val bitmap = BitmapFactory.decodeByteArray(
+                            picture.bytes, 0, picture.bytes.size
+                        ) ?: return@forEach
+                        try {
+                            val maxWidth = cellWidths.drop(local).take(3).sum()
+                            val drawWidth = minOf(maxWidth, bitmap.width * 0.75f)
+                            val drawHeight = minOf(drawWidth * bitmap.height / bitmap.width,
+                                (bottom - pictureY).coerceAtLeast(0f))
+                            if (drawWidth > 0f && drawHeight > 0f) {
+                                picturePage.canvas.drawBitmap(bitmap, null,
+                                    RectF(cellStarts[local], pictureY,
+                                        cellStarts[local] + drawWidth, pictureY + drawHeight),
+                                    Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
+                            }
+                        } finally { bitmap.recycle() }
                     }
+                    }
+
                 }
-                picturePositions.forEach { (picture, pictureY, picturePage) ->
-                    val col = (picture.column - firstSourceCol).coerceAtLeast(0)
-                    if (col !in first until (first + count)) return@forEach
-                    val local = col - first
-                    val bitmap = BitmapFactory.decodeByteArray(
-                        picture.bytes, 0, picture.bytes.size
-                    ) ?: return@forEach
-                    try {
-                        val maxWidth = cellWidths.drop(local).take(3).sum()
-                        val drawWidth = minOf(maxWidth, bitmap.width * 0.75f)
-                        val drawHeight = minOf(drawWidth * bitmap.height / bitmap.width,
-                            (bottom - pictureY).coerceAtLeast(0f))
-                        if (drawWidth > 0f && drawHeight > 0f) {
-                            picturePage.canvas.drawBitmap(bitmap, null,
-                                RectF(cellStarts[local], pictureY,
-                                    cellStarts[local] + drawWidth, pictureY + drawHeight),
-                                Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG))
-                        }
-                    } finally { bitmap.recycle() }
-                }
+
             }
         }
         page?.let { pdf.finishPage(it) }
