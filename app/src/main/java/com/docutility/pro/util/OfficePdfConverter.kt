@@ -139,6 +139,8 @@ object OfficePdfConverter {
                     "blip", "imagedata" -> {
                         val id = parser.getAttributeValue(
                             "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed")
+                            ?: parser.getAttributeValue(
+                                "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "id")
                         if (id != null && paragraphDepth > 0) paragraph.append("\u001EIMAGE\u001F").append(id).append("\u001F")
                     }
                     "tab" -> if (paragraphDepth > 0) paragraph.append("    ")
