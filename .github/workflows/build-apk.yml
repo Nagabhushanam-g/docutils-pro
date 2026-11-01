@@ -78,6 +78,33 @@ jobs:
           path: app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
 
+      - name: Verify downloadable APK artifact exists
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const { owner, repo } = context.repo;
+            let artifact;
+            for (let attempt = 0; attempt < 5; attempt++) {
+              const response = await github.rest.actions.listWorkflowRunArtifacts({
+                owner, repo, run_id: context.runId, per_page: 100
+              });
+              artifact = response.data.artifacts.find(a =>
+                a.name === 'DocUtils-Debug-APK' && !a.expired && a.size_in_bytes > 0
+              );
+              if (artifact) break;
+              await new Promise(resolve => setTimeout(resolve, 3000));
+            }
+            if (!artifact) {
+              core.setFailed('APK artifact was not found after upload. Check Actions artifact storage quota and upload step logs.');
+            } else {
+              core.summary.addRaw('### APK ready for download\\n')
+                .addRaw('Artifact: DocUtils-Debug-APK (' + artifact.size_in_bytes + ' bytes)\\n')
+                .addLink('Open this run to download', context.serverUrl + '/' + owner + '/' + repo + '/actions/runs/' + context.runId);
+              await core.summary.write();
+            }
+
       - name: Keep latest 10 successful APK artifacts
         if: success()
         uses: actions/github-script@v7
