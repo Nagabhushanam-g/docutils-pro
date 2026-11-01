@@ -136,7 +136,7 @@ object OfficePdfConverter {
                     "tc" -> { cellDepth++; if (cellDepth == 1) cell = StringBuilder() }
                     "p" -> { paragraphDepth++; if (paragraphDepth == 1) paragraph = StringBuilder() }
                     "t" -> textDepth++
-                    "blip" -> {
+                    "blip", "imagedata" -> {
                         val id = parser.getAttributeValue(
                             "http://schemas.openxmlformats.org/officeDocument/2006/relationships", "embed")
                         if (id != null && paragraphDepth > 0) paragraph.append("\u001EIMAGE\u001F").append(id).append("\u001F")
