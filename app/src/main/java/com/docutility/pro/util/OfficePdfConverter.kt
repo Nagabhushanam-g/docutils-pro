@@ -529,6 +529,9 @@ object OfficePdfConverter {
                     when (parser.eventType) {
                         XmlPullParser.START_TAG -> when (parser.name) {
                             "oneCellAnchor", "twoCellAnchor" -> { row = -1; column = -1; embed = null }
+                            // Absolute drawing anchors lack worksheet cell coordinates.
+                            // Retain their images at the top-left instead of losing them.
+                            "absoluteAnchor" -> { row = 0; column = 0; embed = null }
                             "from" -> inFrom = true
                             "row", "col" -> if (inFrom) field = parser.name
                             "blip" -> embed = parser.getAttributeValue(
@@ -543,7 +546,7 @@ object OfficePdfConverter {
                             "row", "col" -> field = ""
                             "pic" -> {
                                 val bytes = embed?.let { rels[it] }?.let { entries[it] }
-                                if (row >= 0 && column >= 0 && bytes != null && bytes.size <= 8 * 1024 * 1024)
+                                if (row >= 0 && column >= 0 && bytes != null && bytes.size <= 8 * 1024 * 1024 && pictures.size < 100)
                                     pictures.add(ExcelPicture(column, row, bytes))
                                 embed = null
                             }
