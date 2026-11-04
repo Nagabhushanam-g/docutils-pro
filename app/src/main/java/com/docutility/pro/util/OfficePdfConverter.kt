@@ -761,7 +761,7 @@ object OfficePdfConverter {
                             cellWidths.subList(i, (merge.last + 1).coerceAtMost(count)).sum()
                         else cellWidths[i]
                         if (merge != null && (merge.first != i || merge.row != rowIndex)) listOf("")
-                        else listOf(row.getOrNull(first + i).orEmpty().replace('\n', ' ').replace('\r', ' '))
+                        else wrapCell(row.getOrNull(first + i).orEmpty(), (available - 5f).coerceAtLeast(3f))
                     }
                     var offset = 0
                     val maxLines = wrapped.maxOf { it.size }
