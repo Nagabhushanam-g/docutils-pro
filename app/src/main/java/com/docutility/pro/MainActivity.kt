@@ -278,15 +278,11 @@ fun MainScreen(
     ) { captured ->
         if (captured) {
             pendingCameraUri?.let { uri ->
-                if (true) {
-                    runCatching { DocumentStorage.saveScannedImage(context, uri) }.onSuccess { saved ->
-                        selectedUris = selectedUris + saved
-                        feedback = "Photo saved to Pictures/DocUtils Pro"
-                        recentFiles = runCatching { DocumentStorage.recentFiles(context) }.getOrDefault(recentFiles)
-                    }.onFailure { Toast.makeText(context, "Unable to save photo", Toast.LENGTH_LONG).show() }
-                } else {
-                    Toast.makeText(context, "Free tier limit: 5 images", Toast.LENGTH_LONG).show()
-                }
+                runCatching { DocumentStorage.saveScannedImage(context, uri) }.onSuccess { saved ->
+                    selectedUris = selectedUris + saved
+                    feedback = "Photo saved to Pictures/DocUtils Pro"
+                    recentFiles = runCatching { DocumentStorage.recentFiles(context) }.getOrDefault(recentFiles)
+                }.onFailure { Toast.makeText(context, "Unable to save photo", Toast.LENGTH_LONG).show() }
             }
         }
         pendingCameraUri = null
@@ -307,12 +303,7 @@ fun MainScreen(
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(100)
     ) { uris ->
-        if (false) {
-            Toast.makeText(context, "Free tier limit: 5 images. Upgrade to Pro for unlimited batching.", Toast.LENGTH_LONG).show()
-            selectedUris = uris.take(5)
-        } else {
-            selectedUris = uris
-        }
+        selectedUris = uris
     }
 
     previewUri?.let { uri ->
