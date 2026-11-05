@@ -720,8 +720,8 @@ object OfficePdfConverter {
             // Row height must scale with text size; fixed 34pt rows waste paper
             // and create unnecessary extra pages for dense printed worksheets.
             val lineHeight = (cellFontSize * 1.35f).coerceAtLeast(8f)
-            val rowPadding = 5f
-            val minimumRowHeight = (lineHeight + rowPadding).coerceAtLeast(14f)
+            val rowPadding = 3f
+            val minimumRowHeight = (lineHeight + rowPadding).coerceAtLeast(12f)
             for (tile in 0 until tiles) {
                 val first = tile * columnsPerPage
                 val count = minOf(columnsPerPage, cols - first)
