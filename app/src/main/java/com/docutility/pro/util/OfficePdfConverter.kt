@@ -671,36 +671,10 @@ object OfficePdfConverter {
             y = top
         }
 
-        fun wrapCell(value: String, availableWidth: Float): List<String> {
-            val source = value.replace('\r', ' ').replace('\n', ' ').trim()
-            if (source.isEmpty()) return listOf("")
-            // Keep compact spreadsheet dates and clock times on one line.
-            // A slightly smaller font for these values is more legible than
-            // splitting digits across two or three separate lines.
-            val compactValue = source.matches(Regex("""[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{2,4}""")) ||
-                source.matches(Regex("""[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?"""))
-            if (compactValue) return listOf(source)
-            val lines = mutableListOf<String>()
-            var remaining = source
-            while (remaining.isNotEmpty() && lines.size < 80) {
-                val count = font.breakText(remaining, true, availableWidth, null).coerceAtLeast(1)
-                if (count >= remaining.length) {
-                    lines.add(remaining)
-                    remaining = ""
-                } else {
-                    val breakAt = remaining.lastIndexOf(' ', count - 1)
-                    val end = if (breakAt > 0) breakAt else count
-                    lines.add(remaining.substring(0, end).trimEnd())
-                    remaining = remaining.substring(end).trimStart()
-                }
-            }
-            if (remaining.isNotEmpty() && lines.isNotEmpty()) {
-                var last = lines.last()
-                while (last.isNotEmpty() && font.measureText(last + "…") > availableWidth) last = last.dropLast(1)
-                lines[lines.lastIndex] = last + "…"
-            }
-            return lines
-        }
+        // Excel print output should not invent hard line breaks inside cells.
+        // Keep source text on a single line and fit it horizontally when drawn.
+        fun wrapCell(value: String, availableWidth: Float): List<String> =
+            listOf(value.replace('\\r', ' ').replace('\\n', ' ').trim())
 
         sheets.forEachIndexed { sheetIndex, (title, rows) ->
             val useLandscape = sheetOrientations.getOrNull(sheetIndex) ?: landscape
@@ -740,10 +714,9 @@ object OfficePdfConverter {
                         // Preserve relative proportions; normalize to printable width below.
                         originalWidth.coerceIn(2f, 100f) * 7f
                     } else {
-                    val sample = rows.asSequence().map { it.getOrNull(column).orEmpty() }
-                        .filter { it.isNotBlank() }.take(250)
-                        .maxOfOrNull { font.measureText(it.take(55)) + 14f } ?: 70f
-                    sample.coerceIn(16f, printableWidth * 0.55f)
+                        // A missing <col> means Excel's default column width,
+                        // not an auto-sized width inferred from long cell text.
+                        8.43f * 7f
                     }
                 }
                 val totalPreferred = preferredWidths.sum()
@@ -826,15 +799,17 @@ object OfficePdfConverter {
                             canvas.save()
                             canvas.clipRect(x + 2f, y, x + spanWidth - 2f, y + rowHeight)
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
-                                // Fit single-line numeric dates/times within their cell
-                                // without introducing extra wrapped rows or overflow.
-                                if (line.matches(Regex("""[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{2,4}""")) ||
-                                    line.matches(Regex("""[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?"""))) {
-                                    val measured = pen.measureText(line)
-                                    if (measured > spanWidth - 4f && measured > 0f) {
-                                        pen.textSize = (pen.textSize * (spanWidth - 4f) / measured)
-                                            .coerceAtLeast(5f)
-                                    }
+                                // Fit all cell text, not only dates and times.
+                                // Preserve a single source line even in narrow columns.
+                                val measured = pen.measureText(line)
+                                if (measured > spanWidth - 4f && measured > 0f) {
+                                    pen.textSize = (pen.textSize * (spanWidth - 4f) / measured)
+                                        .coerceAtLeast(2.5f)
+                                    // Canvas scaling also handles cells narrower than
+                                    // the smallest practical Android font size.
+                                    if (pen.measureText(line) > spanWidth - 4f)
+                                        pen.textScaleX = ((spanWidth - 4f) / pen.measureText(line))
+                                            .coerceIn(0.05f, 1f)
                                 }
                                 val textWidth = pen.measureText(line)
                                 val textX = when (style?.horizontal) {
