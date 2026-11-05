@@ -674,7 +674,7 @@ object OfficePdfConverter {
         // Excel print output should not invent hard line breaks inside cells.
         // Keep source text on a single line and fit it horizontally when drawn.
         fun wrapCell(value: String, availableWidth: Float): List<String> =
-            listOf(value.replace('\\r', ' ').replace('\\n', ' ').trim())
+            listOf(value.replace('\r', ' ').replace('\n', ' ').trim())
 
         sheets.forEachIndexed { sheetIndex, (title, rows) ->
             val useLandscape = sheetOrientations.getOrNull(sheetIndex) ?: landscape
