@@ -714,7 +714,7 @@ object OfficePdfConverter {
             // the available printable width instead of generating horizontal tiles.
             val columnsPerPage = cols
             val tiles = 1
-            val cellFontSize = (12f * (8f / cols.coerceAtLeast(8))).coerceIn(7f, 12f)
+            val cellFontSize = (12f * (8f / cols.coerceAtLeast(8))).coerceIn(9f, 12f)
             font.textSize = cellFontSize
             headerFont.textSize = cellFontSize
             // Row height must scale with text size; fixed 34pt rows waste paper
