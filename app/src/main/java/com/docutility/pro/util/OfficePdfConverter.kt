@@ -674,6 +674,12 @@ object OfficePdfConverter {
         fun wrapCell(value: String, availableWidth: Float): List<String> {
             val source = value.replace('\r', ' ').replace('\n', ' ').trim()
             if (source.isEmpty()) return listOf("")
+            // Keep compact spreadsheet dates and clock times on one line.
+            // A slightly smaller font for these values is more legible than
+            // splitting digits across two or three separate lines.
+            val compactValue = source.matches(Regex("""[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{2,4}""")) ||
+                source.matches(Regex("""[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?"""))
+            if (compactValue) return listOf(source)
             val lines = mutableListOf<String>()
             var remaining = source
             while (remaining.isNotEmpty() && lines.size < 80) {
@@ -820,6 +826,16 @@ object OfficePdfConverter {
                             canvas.save()
                             canvas.clipRect(x + 2f, y, x + spanWidth - 2f, y + rowHeight)
                             wrapped[i].drop(offset).take(chunk).forEachIndexed { lineIndex, line ->
+                                // Fit single-line numeric dates/times within their cell
+                                // without introducing extra wrapped rows or overflow.
+                                if (line.matches(Regex("""[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{2,4}""")) ||
+                                    line.matches(Regex("""[0-9]{1,2}:[0-9]{2}(?::[0-9]{2})?"""))) {
+                                    val measured = pen.measureText(line)
+                                    if (measured > spanWidth - 4f && measured > 0f) {
+                                        pen.textSize = (pen.textSize * (spanWidth - 4f) / measured)
+                                            .coerceAtLeast(5f)
+                                    }
+                                }
                                 val textWidth = pen.measureText(line)
                                 val textX = when (style?.horizontal) {
                                     "center", "centerContinuous" -> x + (spanWidth - textWidth) / 2f
