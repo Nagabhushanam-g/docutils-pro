@@ -428,9 +428,14 @@ fun MainScreen(
                                 pendingOfficeUri = null
                                 pendingOfficeName = ""
                                 recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
-                                savedViewerItem = recentFiles.firstOrNull { it.uri == saved }
+                                val convertedItem = recentFiles.firstOrNull { it.uri == saved }
                                     ?: DocumentStorage.SavedItem(saved, "Converted document.pdf", true)
                                 Toast.makeText(context, "PDF saved.", Toast.LENGTH_LONG).show()
+                                // Office conversions previously bypassed the AdMob
+                                // completion hook and opened the viewer immediately.
+                                onShowAd {
+                                    savedViewerItem = convertedItem
+                                }
                             }.onFailure { error ->
                                 Toast.makeText(context, "Conversion failed: ${error.message}", Toast.LENGTH_LONG).show()
                             }
