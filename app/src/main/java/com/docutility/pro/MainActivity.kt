@@ -303,7 +303,20 @@ fun MainScreen(
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(100)
     ) { uris ->
-        selectedUris = uris
+        // Photo Picker grants may be temporary. Keep a permanent local copy
+        // so selected images remain available in My Files after app restarts.
+        coroutineScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                uris.mapNotNull { uri ->
+                    runCatching { DocumentStorage.saveScannedImage(context, uri) }.getOrNull()
+                }
+            }
+            selectedUris = selectedUris + saved
+            recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+            feedback = if (saved.size == uris.size)
+                "${saved.size} image(s) saved to Pictures/DocUtils Pro. Ready to convert to PDF."
+            else "${saved.size} of ${uris.size} image(s) saved. Check image permissions or available storage."
+        }
     }
 
     previewUri?.let { uri ->
