@@ -68,7 +68,11 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           "$APKSIGNER" verify --print-certs "$APK" | grep -E 'Signer #1 certificate (DN|SHA-256 digest)'
-          echo "Compare the SHA-256 certificate fingerprint with the currently installed APK before attempting an update."
+          echo "### Install-over-existing compatibility details" >> "$GITHUB_STEP_SUMMARY"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "^package:" | tee -a "$GITHUB_STEP_SUMMARY"
+          "$APKSIGNER" verify --print-certs "$APK" | grep 'Signer #1 certificate SHA-256 digest' | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "Android updates require the same applicationId, signing certificate, and a higher versionCode." >> "$GITHUB_STEP_SUMMARY"
+          echo "If the installed app has a different certificate, do not uninstall it before backing up saved files." >> "$GITHUB_STEP_SUMMARY"
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -122,7 +126,7 @@ jobs:
             const successfulRunIds = new Set(runs.map(r => r.id));
             const successful = apkArtifacts.filter(a => successfulRunIds.has(a.workflow_run?.id));
             successful.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-            const retained = new Set(successful.slice(0, 9).map(a => a.id));
+            const retained = new Set(successful.slice(0, 10).map(a => a.id));
             let deleted = 0;
             for (const artifact of artifacts) {
               if (artifact.name !== 'DocUtils-Debug-APK' && artifact.name !== 'DocUtils-Build-Log') continue;
