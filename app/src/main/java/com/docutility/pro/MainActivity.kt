@@ -87,6 +87,7 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
+    var cropUri by remember { mutableStateOf<Uri?>(null) }
     var savedViewerItem by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
@@ -319,6 +320,88 @@ fun MainScreen(
         }
     }
 
+    cropUri?.let { uri ->
+        var left by remember(uri) { mutableFloatStateOf(0f) }
+        var top by remember(uri) { mutableFloatStateOf(0f) }
+        var right by remember(uri) { mutableFloatStateOf(1f) }
+        var bottom by remember(uri) { mutableFloatStateOf(1f) }
+        var cropSaving by remember(uri) { mutableStateOf(false) }
+        val source = remember(uri) {
+            runCatching {
+                context.contentResolver.openInputStream(uri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply { inSampleSize = 2 })
+                }
+            }.getOrNull()
+        }
+        AlertDialog(
+            onDismissRequest = { if (!cropSaving) cropUri = null },
+            title = { Text("Crop selected image") },
+            text = {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    if (source != null) {
+                        val x = (left * source.width).toInt().coerceIn(0, source.width - 1)
+                        val y = (top * source.height).toInt().coerceIn(0, source.height - 1)
+                        val w = ((right - left) * source.width).toInt().coerceIn(1, source.width - x)
+                        val h = ((bottom - top) * source.height).toInt().coerceIn(1, source.height - y)
+                        val croppedPreview = remember(source, x, y, w, h) {
+                            android.graphics.Bitmap.createBitmap(source, x, y, w, h)
+                        }
+                        Image(
+                            bitmap = croppedPreview.asImageBitmap(),
+                            contentDescription = "Crop preview",
+                            modifier = Modifier.fillMaxWidth().heightIn(max = 260.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        Text("Left edge")
+                        Slider(value = left, onValueChange = { left = it }, valueRange = 0f..(right - 0.05f).coerceAtLeast(0f))
+                        Text("Right edge")
+                        Slider(value = right, onValueChange = { right = it }, valueRange = (left + 0.05f).coerceAtMost(1f)..1f)
+                        Text("Top edge")
+                        Slider(value = top, onValueChange = { top = it }, valueRange = 0f..(bottom - 0.05f).coerceAtLeast(0f))
+                        Text("Bottom edge")
+                        Slider(value = bottom, onValueChange = { bottom = it }, valueRange = (top + 0.05f).coerceAtMost(1f)..1f)
+                        Text("The original image will be kept. Save creates a new cropped image.")
+                    } else Text("Unable to read image")
+                }
+            },
+            confirmButton = {
+                TextButton(enabled = source != null && !cropSaving, onClick = {
+                    cropSaving = true
+                    coroutineScope.launch {
+                        val result = withContext(Dispatchers.IO) {
+                            runCatching {
+                                val bitmap = source ?: error("Image unavailable")
+                                val x = (left * bitmap.width).toInt().coerceIn(0, bitmap.width - 1)
+                                val y = (top * bitmap.height).toInt().coerceIn(0, bitmap.height - 1)
+                                val w = ((right - left) * bitmap.width).toInt().coerceIn(1, bitmap.width - x)
+                                val h = ((bottom - top) * bitmap.height).toInt().coerceIn(1, bitmap.height - y)
+                                val cropped = android.graphics.Bitmap.createBitmap(bitmap, x, y, w, h)
+                                val temp = File(context.cacheDir, "Cropped_${System.nanoTime()}.jpg")
+                                try {
+                                    temp.outputStream().use { cropped.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, it) }
+                                    DocumentStorage.saveScannedImage(context, Uri.fromFile(temp))
+                                } finally { temp.delete() }
+                            }
+                        }
+                        cropSaving = false
+                        result.onSuccess { saved ->
+                            val index = selectedUris.indexOf(uri)
+                            if (index >= 0) {
+                                val updated = selectedUris.toMutableList()
+                                updated[index] = saved
+                                selectedUris = updated
+                            } else selectedUris = selectedUris + saved
+                            recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                            feedback = "Cropped image saved to Pictures/DocUtils Pro"
+                            cropUri = null
+                        }.onFailure { feedback = "Unable to crop image: ${it.message}" }
+                    }
+                }) { Text(if (cropSaving) "Saving…" else "Save crop") }
+            },
+            dismissButton = { TextButton(enabled = !cropSaving, onClick = { cropUri = null }) { Text("Cancel") } }
+        )
+    }
+
     previewUri?.let { uri ->
         AlertDialog(
             onDismissRequest = { previewUri = null },
@@ -514,6 +597,7 @@ fun MainScreen(
                                 Text("Preview unavailable")
                             }
                             Text("Page ${index + 1} • Tap to preview")
+                            TextButton(onClick = { cropUri = uri }) { Text("Crop image") }
                             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                 TextButton(onClick = {
                                     if (index > 0) {
