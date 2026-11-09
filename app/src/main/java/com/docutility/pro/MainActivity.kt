@@ -747,7 +747,6 @@ fun MainScreen(
                             }
                         }
                     },
-                    enabled = !isProcessing,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (isProcessing) "Converting..." else "Convert to Compressed PDF")
