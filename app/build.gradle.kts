@@ -39,12 +39,33 @@ android {
         buildConfigField("String", "ADMOB_BANNER_ID", "\"$admobBannerId\"")
         buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"$admobInterstitialId\"")
     }
+    // Google Play uses a separate upload key, NEVER the GitHub test/debug key.
+    // CI supplies the upload key through encrypted Actions secrets.
+    val releaseKeystorePath = System.getenv("DOCUTILS_RELEASE_KEYSTORE_PATH")
+    if (!releaseKeystorePath.isNullOrBlank()) {
+        signingConfigs.create("upload") {
+            storeFile = file(releaseKeystorePath)
+            storePassword = System.getenv("DOCUTILS_RELEASE_STORE_PASSWORD") ?: ""
+            keyAlias = System.getenv("DOCUTILS_RELEASE_KEY_ALIAS") ?: ""
+            keyPassword = System.getenv("DOCUTILS_RELEASE_KEY_PASSWORD") ?: ""
+        }
+    }
     buildTypes {
         release {
+            signingConfigs.findByName("upload")?.let { signingConfig = it }
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+    }
+    // A production bundle must never silently fall back to Google's test ad IDs.
+    val isReleaseBuild = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+    if (isReleaseBuild) {
+        require(!releaseKeystorePath.isNullOrBlank()) { "Missing Play upload signing keystore" }
+        require(!admobAppId.startsWith("ca-app-pub-3940256099942544") &&
+            !admobBannerId.startsWith("ca-app-pub-3940256099942544") &&
+            !admobInterstitialId.startsWith("ca-app-pub-3940256099942544")
+        ) { "Production AdMob IDs are required for a Play release" }
     }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
