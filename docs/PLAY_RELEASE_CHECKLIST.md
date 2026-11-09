@@ -23,10 +23,11 @@ This document describes **work remaining**; a debug APK success does NOT mean th
    - `DOCUTILS_ADMOB_APP_ID`
    - `DOCUTILS_ADMOB_BANNER_ID`
    - `DOCUTILS_ADMOB_INTERSTITIAL_ID`
+   - `DOCUTILS_PRIVACY_POLICY_URL`: public, finalized HTTPS webpage linked from the in-app **More → Privacy policy** menu.
    The workflow rejects Google's test IDs and refuses a release if any setting is missing.
 5. Configure and publish a Google-certified consent message in AdMob Privacy & messaging, test it for affected regions and verify the in-app Privacy button when required.
 6. Create and activate the non-consumable **one-time product** `docutils_remove_ads_lifetime` in Play Console. Test pending and completed purchase, restore and acknowledgement using license testers on an internal-test track. Do not charge real users until this is verified.
-7. Publish a **public, HTTPS privacy policy** linked from the Play listing and accessible inside the app. Review and customize the draft in `docs/PRIVACY_POLICY_DRAFT.md`, inserting a real publisher name and contact email.
+7. Publish a **public, HTTPS privacy policy** linked from the Play listing and accessible via **More → Privacy policy** inside the release app. Review and customize the draft in `docs/PRIVACY_POLICY_DRAFT.md`, inserting a real publisher name and contact email.
 8. Prepare screenshots, app icon, high-res icon, feature graphic, short and full descriptions. Complete App content, data safety, target audience, ads declaration, content rating, and contact details. Submit for closed/internal testing as required by your account.
 9. Verify APIs/SDK behavior on Android 16 devices, crash-free conversion, document cropping, file sharing and no UI overlap. Check that all media processing works on real devices; complex Office file layout is explicitly a basic conversion.
 10. Run **Actions → Build Play Store AAB → Run workflow**. Download `DocUtils-Play-Release-AAB`; inspect it and upload it manually to a Play Console internal testing release. This workflow does not publish automatically.
