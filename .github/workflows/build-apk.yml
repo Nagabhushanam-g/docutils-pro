@@ -39,15 +39,16 @@ jobs:
           printf '%s' "$DOCUTILS_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
           chmod 600 "$HOME/.android/debug.keystore"
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
-          # This must not change between releases. GitHub Actions runs 158–165
-          # had different signer fingerprints, making in-place APK updates fail.
-          EXPECTED_SIGNER_SHA256="b329e139277a3994d49b25098b0d983a5dd9bc82f1b08b1f91d087ccc0a3cdfc"
+          # Pinned to the owner-managed long-lived test signing keystore.
+          # NEVER regenerate it between builds or commit its private key to the repo.
+          # GitHub Actions runs 158–166 had different signer fingerprints.
+          EXPECTED_SIGNER_SHA256="518360924041db59d45ca761cf4babaf484dc978756d8f5fd7446d27872af85b"
           ACTUAL_SIGNER_SHA256="$(keytool -exportcert -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1)"
           echo "Debug keystore certificate SHA-256: $ACTUAL_SIGNER_SHA256"
           echo "### Debug signing identity" >> "$GITHUB_STEP_SUMMARY"
           echo "SHA-256: \`$ACTUAL_SIGNER_SHA256\`" >> "$GITHUB_STEP_SUMMARY"
           if [ "$ACTUAL_SIGNER_SHA256" != "$EXPECTED_SIGNER_SHA256" ]; then
-            echo "::error::Signing certificate changed! Refusing to publish an incompatible APK. Restore the same permanent DOCUTILS_DEBUG_KEYSTORE_BASE64 keystore used for build #165. Build #160 had a different signer already and cannot be updated by #165 without reinstalling."
+            echo "::error::Signing certificate mismatch! Install the owner-managed permanent test keystore into Actions secret DOCUTILS_DEBUG_KEYSTORE_BASE64 (do not regenerate each run). An existing APK signed with another key requires a one-time reinstall after backing up saved files."
             exit 1
           fi
       - name: Compile debug APK and capture log
@@ -79,6 +80,12 @@ jobs:
           APK="app/build/outputs/apk/debug/app-debug.apk"
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           "$APKSIGNER" verify --print-certs "$APK" | grep -E 'Signer #1 certificate (DN|SHA-256 digest)'
+          EXPECTED_SIGNER_SHA256="518360924041db59d45ca761cf4babaf484dc978756d8f5fd7446d27872af85b"
+          ACTUAL_APK_SIGNER_SHA256="$("$APKSIGNER" verify --print-certs "$APK" | awk '/Signer #1 certificate SHA-256 digest/ {print $NF; exit}')"
+          if [ "$ACTUAL_APK_SIGNER_SHA256" != "$EXPECTED_SIGNER_SHA256" ]; then
+            echo "::error::Compiled APK has an unexpected signing certificate; refusing to upload."
+            exit 1
+          fi
           echo "### Install-over-existing compatibility details" >> "$GITHUB_STEP_SUMMARY"
           "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "^package:" | tee -a "$GITHUB_STEP_SUMMARY"
           "$APKSIGNER" verify --print-certs "$APK" | grep 'Signer #1 certificate SHA-256 digest' | tee -a "$GITHUB_STEP_SUMMARY"
