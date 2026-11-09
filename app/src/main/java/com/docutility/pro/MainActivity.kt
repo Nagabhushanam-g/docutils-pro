@@ -37,6 +37,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
 import com.docutility.pro.monetization.AdManager
 import com.docutility.pro.monetization.BillingManager
+import com.docutility.pro.util.AutoDocumentCropper
 import com.docutility.pro.util.ScanAppearance
 import com.docutility.pro.util.PdfProcessor
 import com.docutility.pro.util.DocumentStorage
@@ -88,6 +89,9 @@ fun MainScreen(
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
     var cropUri by remember { mutableStateOf<Uri?>(null) }
+    var autoCropInProgress by remember { mutableStateOf(false) }
+    var autoCropOriginals by remember { mutableStateOf<Map<Uri, Uri>>(emptyMap()) }
+    var autoCroppedUris by remember { mutableStateOf<Set<Uri>>(emptySet()) }
     var savedViewerItem by remember { mutableStateOf<DocumentStorage.SavedItem?>(null) }
     var isProcessing by remember { mutableStateOf(false) }
     var latestPdf by remember { mutableStateOf<File?>(null) }
@@ -304,19 +308,37 @@ fun MainScreen(
     val photoPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.PickMultipleVisualMedia(100)
     ) { uris ->
-        // Photo Picker grants may be temporary. Keep a permanent local copy
-        // so selected images remain available in My Files after app restarts.
-        coroutineScope.launch {
-            val saved = withContext(Dispatchers.IO) {
-                uris.mapNotNull { uri ->
-                    runCatching { DocumentStorage.saveScannedImage(context, uri) }.getOrNull()
+        if (uris.isNotEmpty() && !autoCropInProgress) {
+            // Preserve originals and apply a safe automatic crop before the
+            // user reviews or converts any selected gallery photo.
+            autoCropInProgress = true
+            feedback = "Detecting document edges in ${uris.size} image(s)…"
+            coroutineScope.launch {
+                try {
+                    val prepared = withContext(Dispatchers.IO) {
+                        uris.mapNotNull { source ->
+                            val original = runCatching { DocumentStorage.saveScannedImage(context, source) }.getOrNull()
+                            if (original == null) null else {
+                                val cropped = runCatching { AutoDocumentCropper.autoCrop(context, original) }.getOrNull()
+                                Triple(cropped ?: original, original, cropped != null)
+                            }
+                        }
+                    }
+                    selectedUris = selectedUris + prepared.map { it.first }
+                    autoCropOriginals = autoCropOriginals + prepared
+                        .filter { it.third }.associate { it.first to it.second }
+                    autoCroppedUris = autoCroppedUris + prepared
+                        .filter { it.third }.map { it.first }
+                    recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
+                    val croppedCount = prepared.count { it.third }
+                    feedback = "${prepared.size} image(s) ready • ${croppedCount} auto-cropped. Review each page; adjust a crop or convert directly to PDF."
+                    if (prepared.size < uris.size) feedback += " Some images could not be saved."
+                } catch (error: Exception) {
+                    feedback = "Automatic cropping interrupted: ${error.message}. Try selecting images again."
+                } finally {
+                    autoCropInProgress = false
                 }
             }
-            selectedUris = selectedUris + saved
-            recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
-            feedback = if (saved.size == uris.size)
-                "${saved.size} image(s) saved to Pictures/DocUtils Pro. Ready to convert to PDF."
-            else "${saved.size} of ${uris.size} image(s) saved. Check image permissions or available storage."
         }
     }
 
@@ -390,9 +412,12 @@ fun MainScreen(
                                 val updated = selectedUris.toMutableList()
                                 updated[index] = saved
                                 selectedUris = updated
+                                autoCropOriginals = (autoCropOriginals - uri) +
+                                    (saved to (autoCropOriginals[uri] ?: uri))
+                                autoCroppedUris = (autoCroppedUris - uri) + saved
                             } else selectedUris = selectedUris + saved
                             recentFiles = runCatching { DocumentStorage.recentFiles(context, 500) }.getOrDefault(recentFiles)
-                            feedback = "Cropped image saved to Pictures/DocUtils Pro"
+                            feedback = "Adjusted crop saved to Pictures/DocUtils Pro"
                             cropUri = null
                         }.onFailure { feedback = "Unable to crop image: ${it.message}" }
                     }
@@ -575,13 +600,36 @@ fun MainScreen(
                 Text("Smart Scan: Auto Crop & Enhance")
             }
             Text("Capture documents or select photos, then convert them into a PDF.")
+            if (autoCropInProgress) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                Text("Auto-cropping selected photos. Keep the app open until the pages are ready.")
+            }
             if (selectedUris.isNotEmpty()) {
                 Text("Pages (in PDF order)", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Auto-cropped where a clear border was detected. Review the previews, adjust individual crops if needed, or convert to PDF.",
+                    style = MaterialTheme.typography.bodySmall
+                )
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     itemsIndexed(selectedUris) { index, uri ->
                         Column(modifier = Modifier.width(132.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             Text("Page ${index + 1}", style = MaterialTheme.typography.labelMedium)
-                            TextButton(onClick = { cropUri = uri }) { Text("Crop image") }
+                            Text(
+                                if (uri in autoCroppedUris) "Auto-cropped" else "Original kept",
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                            TextButton(onClick = { cropUri = uri }) { Text("Adjust crop") }
+                            autoCropOriginals[uri]?.let { original ->
+                                TextButton(onClick = {
+                                    val current = selectedUris.toMutableList()
+                                    if (index in current.indices && current[index] == uri) {
+                                        current[index] = original
+                                        selectedUris = current
+                                        autoCropOriginals = autoCropOriginals - uri
+                                        autoCroppedUris = autoCroppedUris - uri
+                                    }
+                                }) { Text("Use original") }
+                            }
                             val preview = remember(uri) {
                                 runCatching {
                                     context.contentResolver.openInputStream(uri)?.use { stream ->
