@@ -9,8 +9,11 @@ android {
         applicationId = "com.docutility.pro"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)
-        versionName = "1.0.${(System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)}"
+        // The Play release workflow sets a dedicated monotonic version code.
+        // Debug APKs keep their GitHub Actions run number for in-place updates.
+        versionCode = System.getenv("DOCUTILS_VERSION_CODE")?.toIntOrNull()
+            ?: (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)
+        versionName = "1.0.$versionCode"
     }
     // Pin debug APK signing explicitly. Android Gradle Plugin may otherwise
     // discover or generate a different debug keystore than the one restored in CI.
