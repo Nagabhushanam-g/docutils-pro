@@ -51,6 +51,8 @@ jobs:
           chmod 600 "$KEYSTORE"
           keytool -list -keystore "$KEYSTORE" -storepass "$DOCUTILS_RELEASE_STORE_PASSWORD" -alias "$DOCUTILS_RELEASE_KEY_ALIAS" >/dev/null
           echo "DOCUTILS_RELEASE_KEYSTORE_PATH=$KEYSTORE" >> "$GITHUB_ENV"
+          # Release upload codes start at 100001 and increase every workflow run.
+          echo "DOCUTILS_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
           echo "### Dedicated Play upload key verified" >> "$GITHUB_STEP_SUMMARY"
           keytool -exportcert -keystore "$KEYSTORE" -storepass "$DOCUTILS_RELEASE_STORE_PASSWORD" -alias "$DOCUTILS_RELEASE_KEY_ALIAS" | sha256sum | cut -d' ' -f1 >> "$GITHUB_STEP_SUMMARY"
       - name: Build signed release AAB
