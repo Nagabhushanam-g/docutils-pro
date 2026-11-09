@@ -19,14 +19,14 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - name: Install Android SDK 35
+      - name: Install Android SDK 36
         run: |
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-35" "build-tools;35.0.0"
-      - name: Set up Gradle 8.6
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+      - name: Set up Gradle 8.11.1
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.6'
+          gradle-version: '8.11.1'
       - name: Restore permanent Android debug signing key
         env:
           DOCUTILS_DEBUG_KEYSTORE_BASE64: ${{ secrets.DOCUTILS_DEBUG_KEYSTORE_BASE64 }}
@@ -82,7 +82,7 @@ jobs:
         if: success()
         run: |
           APK="app/build/outputs/apk/debug/app-debug.apk"
-          APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
+          APKSIGNER="$ANDROID_HOME/build-tools/36.0.0/apksigner"
           "$APKSIGNER" verify --print-certs "$APK" | grep -E 'Signer #1 certificate (DN|SHA-256 digest)'
           EXPECTED_SIGNER_SHA256="518360924041db59d45ca761cf4babaf484dc978756d8f5fd7446d27872af85b"
           ACTUAL_APK_SIGNER_SHA256="$("$APKSIGNER" verify --print-certs "$APK" | awk '/Signer #1 certificate SHA-256 digest/ {print $NF; exit}')"
@@ -91,7 +91,7 @@ jobs:
             exit 1
           fi
           echo "### Install-over-existing compatibility details" >> "$GITHUB_STEP_SUMMARY"
-          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$APK" | grep "^package:" | tee -a "$GITHUB_STEP_SUMMARY"
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | grep "^package:" | tee -a "$GITHUB_STEP_SUMMARY"
           "$APKSIGNER" verify --print-certs "$APK" | grep 'Signer #1 certificate SHA-256 digest' | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Android updates require the same applicationId, signing certificate, and a higher versionCode." >> "$GITHUB_STEP_SUMMARY"
           echo "If the installed app has a different certificate, do not uninstall it before backing up saved files." >> "$GITHUB_STEP_SUMMARY"
