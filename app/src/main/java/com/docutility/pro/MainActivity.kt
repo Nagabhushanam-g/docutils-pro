@@ -559,12 +559,13 @@ fun MainScreen(
             }
 
             Button(
+                enabled = !autoCropInProgress && !isProcessing,
                 onClick = {
                     photoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Select Images (${selectedUris.size} selected)")
+                Text(if (autoCropInProgress) "Auto-cropping images…" else "Select Images (${selectedUris.size} selected)")
             }
 
             OutlinedButton(
@@ -701,6 +702,7 @@ fun MainScreen(
                     valueRange = 40f..95f
                 )
                 Button(
+                    enabled = !autoCropInProgress && !isProcessing,
                     onClick = {
                         isProcessing = true
                         val safeName = documentName.trim().removeSuffix(".pdf")
