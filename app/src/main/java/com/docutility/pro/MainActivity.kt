@@ -486,11 +486,7 @@ fun MainScreen(
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Import exported PDF") }
             Text(
-                "Export a PDF in your Office app first, then import it here to save and view it.",
-                style = MaterialTheme.typography.bodySmall
-            )
-            Text(
-                "Offline basic conversion: files stay on your phone. Complex Excel and Word formatting may differ from the original.",
+                "Office files convert offline, but complex formatting may vary. For exact layout, export to PDF in your Office app and import it here.",
                 style = MaterialTheme.typography.bodySmall
             )
             pendingOfficeUri?.let { source ->
@@ -584,6 +580,8 @@ fun MainScreen(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     itemsIndexed(selectedUris) { index, uri ->
                         Column(modifier = Modifier.width(132.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Page ${index + 1}", style = MaterialTheme.typography.labelMedium)
+                            TextButton(onClick = { cropUri = uri }) { Text("Crop image") }
                             val preview = remember(uri) {
                                 runCatching {
                                     context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -602,8 +600,7 @@ fun MainScreen(
                             } else {
                                 Text("Preview unavailable")
                             }
-                            Text("Page ${index + 1} • Tap to preview")
-                            TextButton(onClick = { cropUri = uri }) { Text("Crop image") }
+                            Text("Tap image to preview", style = MaterialTheme.typography.labelSmall)
                             Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                 TextButton(onClick = {
                                     if (index > 0) {
