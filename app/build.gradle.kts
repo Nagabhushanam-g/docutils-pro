@@ -37,10 +37,12 @@ android {
     val admobAppId = System.getenv("DOCUTILS_ADMOB_APP_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544~3347511713"
     val admobBannerId = System.getenv("DOCUTILS_ADMOB_BANNER_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544/6300978111"
     val admobInterstitialId = System.getenv("DOCUTILS_ADMOB_INTERSTITIAL_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544/1033173712"
+    val privacyPolicyUrl = System.getenv("DOCUTILS_PRIVACY_POLICY_URL").orEmpty()
     defaultConfig {
         manifestPlaceholders["admobAppId"] = admobAppId
         buildConfigField("String", "ADMOB_BANNER_ID", "\"$admobBannerId\"")
         buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"$admobInterstitialId\"")
+        buildConfigField("String", "PRIVACY_POLICY_URL", "\"$privacyPolicyUrl\"")
     }
     // Google Play uses a separate upload key, NEVER the GitHub test/debug key.
     // CI supplies the upload key through encrypted Actions secrets.
@@ -65,6 +67,9 @@ android {
     val isReleaseBuild = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
     if (isReleaseBuild) {
         require(!releaseKeystorePath.isNullOrBlank()) { "Missing Play upload signing keystore" }
+        require(privacyPolicyUrl.startsWith("https://") &&
+            privacyPolicyUrl.matches(Regex("[A-Za-z0-9:/._?&=%#-]+"))
+        ) { "A public HTTPS privacy policy URL must be configured for Play releases" }
         require(!admobAppId.startsWith("ca-app-pub-3940256099942544") &&
             !admobBannerId.startsWith("ca-app-pub-3940256099942544") &&
             !admobInterstitialId.startsWith("ca-app-pub-3940256099942544")
