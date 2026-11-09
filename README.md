@@ -1,13 +1,19 @@
-# DocUtils Pro — Android starter
+# DocUtils Pro
 
-Native Kotlin/Jetpack Compose app. Image-to-PDF with optional watermark and JPEG recompression; AdMob test IDs only. PDF merge/page-count from the earlier starter are not in this revised UI.
+Android/Kotlin Jetpack Compose document utility. Image-to-PDF, conservative automatic image cropping with optional manual adjustments, local PDF/file management, camera scanning, and basic offline Word/Excel conversion. Advanced Office layouts may differ from the originals.
 
-## Build
-Upload the contents of this folder into a GitHub repository. The Actions workflow builds a debug APK. This ZIP contains source, not a compiled APK. The workflow bootstraps the Gradle wrapper JAR if missing.
+## CI builds
 
-## Important
-- AdMob uses Google's **test** app/unit IDs. Replace only after account setup and policy compliance.
-- The purchase ID `docutils_remove_ads_lifetime` must be created in Play Console. Purchases are NOT fully implemented: purchase acknowledgement and entitlement validation must be completed before launch.
-- ML Kit scanner and Coil dependencies are included, but the scanner UI is not implemented.
-- The current picker allows up to 100 images, but free users are limited to five after selection.
-- Test PDF generation, file viewing, memory use on large images, billing and ads before production release.
+- **Build Debug APK** (push and manual): creates `DocUtils-Pro-Build-N.apk`. Uses a pinned permanent **test** signing key stored in GitHub Actions secret `DOCUTILS_DEBUG_KEYSTORE_BASE64`; APK certificate is verified before upload. Debug APKs from build #169 onward are intended for in-place updates with the same key.
+- **Build Play Store AAB** (manual only): requires a **separate** Play upload key and production AdMob IDs. Builds `DocUtils-Pro-Play-N.aab` for manual upload to Google Play internal testing. The workflow does NOT publish to Play.
+- The project targets Android 16 (API 36) for Play submission and uses Google Play Billing 8 and Google UMP consent handling.
+
+## Before Google Play publication
+
+Read **[Play release checklist](docs/PLAY_RELEASE_CHECKLIST.md)** and review the **[privacy policy draft](docs/PRIVACY_POLICY_DRAFT.md)**. Play setup, production ads, completed privacy declarations, a real publisher contact, and purchase testing are required. Do not publish the privacy draft with placeholders.
+
+AdMob is intentionally configured with Google test IDs for development when production IDs are not supplied; the Play bundle workflow refuses to build with test IDs. The `docutils_remove_ads_lifetime` Play product must exist in Play Console for purchasing to work.
+
+## Security and documents
+
+Files are processed locally for the core converter and saved into app-visible Android media collections. Some optional Google services (AdMob, Play Billing, Google scanner) use network services. Never commit credentials or keystore files. Release and test signing keys are intentionally separate.
