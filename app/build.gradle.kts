@@ -12,6 +12,25 @@ android {
         versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)
         versionName = "1.0.${(System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)}"
     }
+    // Pin debug APK signing explicitly. Android Gradle Plugin may otherwise
+    // discover or generate a different debug keystore than the one restored in CI.
+    // The file is kept outside version control and is supplied by GitHub Actions.
+    signingConfigs {
+        getByName("debug") {
+            storeFile = file(
+                System.getenv("DOCUTILS_DEBUG_KEYSTORE_PATH")
+                    ?: (System.getProperty("user.home") + "/.android/debug.keystore")
+            )
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+    buildTypes {
+        getByName("debug") {
+            signingConfig = signingConfigs.getByName("debug")
+        }
+    }
     val admobAppId = System.getenv("DOCUTILS_ADMOB_APP_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544~3347511713"
     val admobBannerId = System.getenv("DOCUTILS_ADMOB_BANNER_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544/6300978111"
     val admobInterstitialId = System.getenv("DOCUTILS_ADMOB_INTERSTITIAL_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544/1033173712"
