@@ -82,6 +82,10 @@ class MainActivity : ComponentActivity() {
                 adsAllowed = adsAllowed,
                 privacyOptionsRequired = privacyOptionsRequired,
                 onPrivacyOptions = { consentManager.showPrivacyOptions() },
+                onRestorePurchases = {
+                    billingManager.refreshPurchases()
+                    Toast.makeText(this, "Checking your Google Play purchases", Toast.LENGTH_SHORT).show()
+                },
                 onBuyPro = { billingManager.launchPurchaseFlow(this) },
                 onShowAd = { onDismissed ->
                     if (isProUser || !consentManager.canRequestAds.value) onDismissed()
@@ -109,6 +113,7 @@ fun MainScreen(
     adsAllowed: Boolean,
     privacyOptionsRequired: Boolean,
     onPrivacyOptions: () -> Unit,
+    onRestorePurchases: () -> Unit,
     onBuyPro: () -> Unit,
     onShowAd: (() -> Unit) -> Unit
 ) {
@@ -484,8 +489,7 @@ fun MainScreen(
             TopAppBar(
                 title = { Text("DocUtils Pro") },
                 actions = {
-                    if (BuildConfig.PRIVACY_POLICY_URL.isNotBlank() || privacyOptionsRequired) {
-                        Box {
+                    Box {
                             TextButton(onClick = { moreMenuExpanded = true }) { Text("More") }
                             DropdownMenu(
                                 expanded = moreMenuExpanded,
@@ -515,9 +519,20 @@ fun MainScreen(
                                         }
                                     )
                                 }
+                                DropdownMenuItem(
+                                    text = { Text("Restore ad-free purchase") },
+                                    onClick = {
+                                        moreMenuExpanded = false
+                                        onRestorePurchases()
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Version ${BuildConfig.VERSION_NAME}") },
+                                    enabled = false,
+                                    onClick = {}
+                                )
                             }
                         }
-                    }
                     if (!isProUser) {
                         Button(onClick = onBuyPro) { Text("Go Ad-Free") }
                     }
