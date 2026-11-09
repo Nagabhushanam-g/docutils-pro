@@ -441,17 +441,23 @@ fun MainScreen(
         bottomBar = {
             if (!isProUser) {
                 // AdMob Banner at bottom
-                AndroidView(
-                    modifier = Modifier.fillMaxWidth().height(50.dp),
-                    factory = { ctx ->
-                        AdView(ctx).apply {
-                            setAdSize(AdSize.BANNER)
-                            // AdMob test banner ID
-                            adUnitId = BuildConfig.ADMOB_BANNER_ID
-                            loadAd(AdRequest.Builder().build())
-                        }
+                Surface(tonalElevation = 2.dp) {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(58.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AndroidView(
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            factory = { ctx ->
+                                AdView(ctx).apply {
+                                    setAdSize(AdSize.BANNER)
+                                    adUnitId = BuildConfig.ADMOB_BANNER_ID
+                                    loadAd(AdRequest.Builder().build())
+                                }
+                            }
+                        )
                     }
-                )
+                }
             }
         }
     ) { padding ->
@@ -460,8 +466,8 @@ fun MainScreen(
                 .padding(padding)
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             OutlinedButton(
@@ -577,7 +583,7 @@ fun MainScreen(
                 Text("Pages (in PDF order)", style = MaterialTheme.typography.titleMedium)
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     itemsIndexed(selectedUris) { index, uri ->
-                        Column(modifier = Modifier.width(140.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Column(modifier = Modifier.width(132.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                             val preview = remember(uri) {
                                 runCatching {
                                     context.contentResolver.openInputStream(uri)?.use { stream ->
@@ -590,7 +596,7 @@ fun MainScreen(
                                 Image(
                                     bitmap = preview,
                                     contentDescription = "Page ${index + 1} preview",
-                                    modifier = Modifier.fillMaxWidth().height(180.dp).clickable { previewUri = uri },
+                                    modifier = Modifier.fillMaxWidth().height(140.dp).clickable { previewUri = uri },
                                     contentScale = ContentScale.Fit
                                 )
                             } else {
