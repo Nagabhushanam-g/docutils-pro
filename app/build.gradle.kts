@@ -4,11 +4,11 @@ plugins {
 }
 android {
     namespace = "com.docutility.pro"
-    compileSdk = 35
+    compileSdk = 36
     defaultConfig {
         applicationId = "com.docutility.pro"
         minSdk = 26
-        targetSdk = 35
+        targetSdk = 36
         versionCode = (System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)
         versionName = "1.0.${(System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull() ?: 4).coerceAtLeast(5)}"
     }
