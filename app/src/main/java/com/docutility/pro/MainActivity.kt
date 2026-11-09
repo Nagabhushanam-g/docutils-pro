@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.FileProvider
+import com.docutility.pro.monetization.AdsConsentManager
 import com.docutility.pro.monetization.AdManager
 import com.docutility.pro.monetization.BillingManager
 import com.docutility.pro.util.AutoDocumentCropper
@@ -55,25 +56,49 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var billingManager: BillingManager
     private lateinit var adManager: AdManager
+    private lateinit var consentManager: AdsConsentManager
+    private var adsInitialized = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        MobileAds.initialize(this) {}
 
         billingManager = BillingManager(this)
-        adManager = AdManager(this).apply { loadInterstitial() }
+        adManager = AdManager(this)
+        consentManager = AdsConsentManager(this) {
+            if (consentManager.canRequestAds.value && !adsInitialized) {
+                adsInitialized = true
+                MobileAds.initialize(this) {}
+                adManager.loadInterstitial()
+            }
+        }
+        consentManager.refresh()
 
         setContent {
             val isProUser by billingManager.isProUser.collectAsState()
+            val adsAllowed by consentManager.canRequestAds.collectAsState()
+            val privacyOptionsRequired by consentManager.privacyOptionsRequired.collectAsState()
             MainScreen(
                 isProUser = isProUser,
+                adsAllowed = adsAllowed,
+                privacyOptionsRequired = privacyOptionsRequired,
+                onPrivacyOptions = { consentManager.showPrivacyOptions() },
                 onBuyPro = { billingManager.launchPurchaseFlow(this) },
                 onShowAd = { onDismissed ->
-                    if (isProUser) onDismissed()
+                    if (isProUser || !consentManager.canRequestAds.value) onDismissed()
                     else adManager.afterCompletedAction(this, onDismissed)
                 }
             )
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::billingManager.isInitialized) billingManager.refreshPurchases()
+    }
+
+    override fun onDestroy() {
+        if (::billingManager.isInitialized) billingManager.close()
+        super.onDestroy()
     }
 }
 
@@ -81,6 +106,9 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(
     isProUser: Boolean,
+    adsAllowed: Boolean,
+    privacyOptionsRequired: Boolean,
+    onPrivacyOptions: () -> Unit,
     onBuyPro: () -> Unit,
     onShowAd: (() -> Unit) -> Unit
 ) {
@@ -455,6 +483,9 @@ fun MainScreen(
             TopAppBar(
                 title = { Text("DocUtils Pro") },
                 actions = {
+                    if (privacyOptionsRequired) {
+                        TextButton(onClick = onPrivacyOptions) { Text("Privacy") }
+                    }
                     if (!isProUser) {
                         Button(onClick = onBuyPro) {
                             Text("Go Ad-Free")
@@ -464,7 +495,7 @@ fun MainScreen(
             )
         },
         bottomBar = {
-            if (!isProUser) {
+            if (!isProUser && adsAllowed) {
                 // AdMob Banner at bottom
                 Surface(tonalElevation = 2.dp) {
                     Box(
