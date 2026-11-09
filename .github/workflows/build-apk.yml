@@ -39,6 +39,17 @@ jobs:
           printf '%s' "$DOCUTILS_DEBUG_KEYSTORE_BASE64" | base64 --decode > "$HOME/.android/debug.keystore"
           chmod 600 "$HOME/.android/debug.keystore"
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
+          # This must not change between releases. GitHub Actions runs 158–165
+          # had different signer fingerprints, making in-place APK updates fail.
+          EXPECTED_SIGNER_SHA256="b329e139277a3994d49b25098b0d983a5dd9bc82f1b08b1f91d087ccc0a3cdfc"
+          ACTUAL_SIGNER_SHA256="$(keytool -exportcert -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1)"
+          echo "Debug keystore certificate SHA-256: $ACTUAL_SIGNER_SHA256"
+          echo "### Debug signing identity" >> "$GITHUB_STEP_SUMMARY"
+          echo "SHA-256: \`$ACTUAL_SIGNER_SHA256\`" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ACTUAL_SIGNER_SHA256" != "$EXPECTED_SIGNER_SHA256" ]; then
+            echo "::error::Signing certificate changed! Refusing to publish an incompatible APK. Restore the same permanent DOCUTILS_DEBUG_KEYSTORE_BASE64 keystore used for build #165. Build #160 had a different signer already and cannot be updated by #165 without reinstalling."
+            exit 1
+          fi
       - name: Compile debug APK and capture log
         env:
           DOCUTILS_ADMOB_APP_ID: ${{ vars.DOCUTILS_ADMOB_APP_ID }}
@@ -73,13 +84,19 @@ jobs:
           "$APKSIGNER" verify --print-certs "$APK" | grep 'Signer #1 certificate SHA-256 digest' | tee -a "$GITHUB_STEP_SUMMARY"
           echo "Android updates require the same applicationId, signing certificate, and a higher versionCode." >> "$GITHUB_STEP_SUMMARY"
           echo "If the installed app has a different certificate, do not uninstall it before backing up saved files." >> "$GITHUB_STEP_SUMMARY"
+      - name: Give APK an unambiguous build-number filename
+        if: success()
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/DocUtils-Pro-Build-${GITHUB_RUN_NUMBER}.apk"
+          sha256sum "dist/DocUtils-Pro-Build-${GITHUB_RUN_NUMBER}.apk" | tee -a "$GITHUB_STEP_SUMMARY"
       - name: Upload debug APK
         if: success()
         uses: actions/upload-artifact@v4
         with:
           name: DocUtils-Debug-APK
           retention-days: 7
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: dist/DocUtils-Pro-Build-*.apk
           if-no-files-found: error
 
       - name: Verify downloadable APK artifact exists
