@@ -1,0 +1,84 @@
+name: Build Play Store AAB
+run-name: DocUtils Play bundle • ${{ github.sha }}
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 36
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+      - name: Set up Gradle 8.11.1
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Validate production AdMob configuration and restore Play upload key
+        env:
+          DOCUTILS_RELEASE_KEYSTORE_BASE64: ${{ secrets.DOCUTILS_RELEASE_KEYSTORE_BASE64 }}
+          DOCUTILS_RELEASE_STORE_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_STORE_PASSWORD }}
+          DOCUTILS_RELEASE_KEY_ALIAS: ${{ secrets.DOCUTILS_RELEASE_KEY_ALIAS }}
+          DOCUTILS_RELEASE_KEY_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_KEY_PASSWORD }}
+          DOCUTILS_ADMOB_APP_ID: ${{ vars.DOCUTILS_ADMOB_APP_ID }}
+          DOCUTILS_ADMOB_BANNER_ID: ${{ vars.DOCUTILS_ADMOB_BANNER_ID }}
+          DOCUTILS_ADMOB_INTERSTITIAL_ID: ${{ vars.DOCUTILS_ADMOB_INTERSTITIAL_ID }}
+        run: |
+          set -euo pipefail
+          for variable in DOCUTILS_RELEASE_KEYSTORE_BASE64 DOCUTILS_RELEASE_STORE_PASSWORD DOCUTILS_RELEASE_KEY_ALIAS DOCUTILS_RELEASE_KEY_PASSWORD DOCUTILS_ADMOB_APP_ID DOCUTILS_ADMOB_BANNER_ID DOCUTILS_ADMOB_INTERSTITIAL_ID; do
+            if [ -z "${!variable}" ]; then
+              echo "::error::Missing $variable. See docs/PLAY_RELEASE_CHECKLIST.md"
+              exit 1
+            fi
+          done
+          if [[ "$DOCUTILS_ADMOB_APP_ID" == ca-app-pub-3940256099942544* ]] || [[ "$DOCUTILS_ADMOB_BANNER_ID" == ca-app-pub-3940256099942544* ]] || [[ "$DOCUTILS_ADMOB_INTERSTITIAL_ID" == ca-app-pub-3940256099942544* ]]; then
+            echo "::error::Production releases must use live AdMob IDs, not Google test IDs."
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/docutils-signing"
+          KEYSTORE="$RUNNER_TEMP/docutils-signing/play-upload.jks"
+          printf '%s' "$DOCUTILS_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
+          chmod 600 "$KEYSTORE"
+          keytool -list -keystore "$KEYSTORE" -storepass "$DOCUTILS_RELEASE_STORE_PASSWORD" -alias "$DOCUTILS_RELEASE_KEY_ALIAS" >/dev/null
+          echo "DOCUTILS_RELEASE_KEYSTORE_PATH=$KEYSTORE" >> "$GITHUB_ENV"
+          echo "### Dedicated Play upload key verified" >> "$GITHUB_STEP_SUMMARY"
+          keytool -exportcert -keystore "$KEYSTORE" -storepass "$DOCUTILS_RELEASE_STORE_PASSWORD" -alias "$DOCUTILS_RELEASE_KEY_ALIAS" | sha256sum | cut -d' ' -f1 >> "$GITHUB_STEP_SUMMARY"
+      - name: Build signed release AAB
+        env:
+          DOCUTILS_RELEASE_STORE_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_STORE_PASSWORD }}
+          DOCUTILS_RELEASE_KEY_ALIAS: ${{ secrets.DOCUTILS_RELEASE_KEY_ALIAS }}
+          DOCUTILS_RELEASE_KEY_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_KEY_PASSWORD }}
+          DOCUTILS_ADMOB_APP_ID: ${{ vars.DOCUTILS_ADMOB_APP_ID }}
+          DOCUTILS_ADMOB_BANNER_ID: ${{ vars.DOCUTILS_ADMOB_BANNER_ID }}
+          DOCUTILS_ADMOB_INTERSTITIAL_ID: ${{ vars.DOCUTILS_ADMOB_INTERSTITIAL_ID }}
+        run: |
+          set -euo pipefail
+          gradle :app:bundleRelease --stacktrace --console=plain
+      - name: Verify signed AAB and package it
+        run: |
+          set -euo pipefail
+          BUNDLE="app/build/outputs/bundle/release/app-release.aab"
+          test -s "$BUNDLE"
+          jarsigner -verify -strict "$BUNDLE" >/dev/null
+          mkdir -p dist
+          cp "$BUNDLE" "dist/DocUtils-Pro-Play-${GITHUB_RUN_NUMBER}.aab"
+          echo "### Signed Play bundle ready for internal testing" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh dist/*.aab | tee -a "$GITHUB_STEP_SUMMARY"
+          sha256sum dist/*.aab | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload AAB artifact (not published to Play)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocUtils-Play-Release-AAB
+          path: dist/*.aab
+          retention-days: 7
+          if-no-files-found: error
