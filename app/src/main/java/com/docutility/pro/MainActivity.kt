@@ -116,6 +116,7 @@ fun MainScreen(
     val coroutineScope = rememberCoroutineScope()
     var selectedUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var previewUri by remember { mutableStateOf<Uri?>(null) }
+    var moreMenuExpanded by remember { mutableStateOf(false) }
     var cropUri by remember { mutableStateOf<Uri?>(null) }
     var autoCropInProgress by remember { mutableStateOf(false) }
     var autoCropOriginals by remember { mutableStateOf<Map<Uri, Uri>>(emptyMap()) }
@@ -483,13 +484,42 @@ fun MainScreen(
             TopAppBar(
                 title = { Text("DocUtils Pro") },
                 actions = {
-                    if (privacyOptionsRequired) {
-                        TextButton(onClick = onPrivacyOptions) { Text("Privacy") }
+                    if (BuildConfig.PRIVACY_POLICY_URL.isNotBlank() || privacyOptionsRequired) {
+                        Box {
+                            TextButton(onClick = { moreMenuExpanded = true }) { Text("More") }
+                            DropdownMenu(
+                                expanded = moreMenuExpanded,
+                                onDismissRequest = { moreMenuExpanded = false }
+                            ) {
+                                if (BuildConfig.PRIVACY_POLICY_URL.isNotBlank()) {
+                                    DropdownMenuItem(
+                                        text = { Text("Privacy policy") },
+                                        onClick = {
+                                            moreMenuExpanded = false
+                                            runCatching {
+                                                context.startActivity(
+                                                    Intent(Intent.ACTION_VIEW, Uri.parse(BuildConfig.PRIVACY_POLICY_URL))
+                                                )
+                                            }.onFailure {
+                                                Toast.makeText(context, "Unable to open privacy policy", Toast.LENGTH_LONG).show()
+                                            }
+                                        }
+                                    )
+                                }
+                                if (privacyOptionsRequired) {
+                                    DropdownMenuItem(
+                                        text = { Text("Ad privacy choices") },
+                                        onClick = {
+                                            moreMenuExpanded = false
+                                            onPrivacyOptions()
+                                        }
+                                    )
+                                }
+                            }
+                        }
                     }
                     if (!isProUser) {
-                        Button(onClick = onBuyPro) {
-                            Text("Go Ad-Free")
-                        }
+                        Button(onClick = onBuyPro) { Text("Go Ad-Free") }
                     }
                 }
             )
