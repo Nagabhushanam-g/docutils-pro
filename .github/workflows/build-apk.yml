@@ -45,6 +45,7 @@ jobs:
           EXPECTED_SIGNER_SHA256="518360924041db59d45ca761cf4babaf484dc978756d8f5fd7446d27872af85b"
           ACTUAL_SIGNER_SHA256="$(keytool -exportcert -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | sha256sum | cut -d' ' -f1)"
           echo "Debug keystore certificate SHA-256: $ACTUAL_SIGNER_SHA256"
+          echo "DOCUTILS_DEBUG_KEYSTORE_PATH=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
           echo "### Debug signing identity" >> "$GITHUB_STEP_SUMMARY"
           echo "SHA-256: \`$ACTUAL_SIGNER_SHA256\`" >> "$GITHUB_STEP_SUMMARY"
           if [ "$ACTUAL_SIGNER_SHA256" != "$EXPECTED_SIGNER_SHA256" ]; then
@@ -58,6 +59,9 @@ jobs:
           DOCUTILS_ADMOB_INTERSTITIAL_ID: ${{ vars.DOCUTILS_ADMOB_INTERSTITIAL_ID }}
         run: |
           set -o pipefail
+          test -s "$DOCUTILS_DEBUG_KEYSTORE_PATH"
+          echo "Using explicit CI signing file: $DOCUTILS_DEBUG_KEYSTORE_PATH"
+          gradle :app:signingReport --console=plain
           gradle :app:assembleDebug --stacktrace --console=plain 2>&1 | tee build-output.log
       - name: Publish build diagnostics in run summary
         if: always()
