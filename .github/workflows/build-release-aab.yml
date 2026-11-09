@@ -33,14 +33,19 @@ jobs:
           DOCUTILS_ADMOB_APP_ID: ${{ vars.DOCUTILS_ADMOB_APP_ID }}
           DOCUTILS_ADMOB_BANNER_ID: ${{ vars.DOCUTILS_ADMOB_BANNER_ID }}
           DOCUTILS_ADMOB_INTERSTITIAL_ID: ${{ vars.DOCUTILS_ADMOB_INTERSTITIAL_ID }}
+          DOCUTILS_PRIVACY_POLICY_URL: ${{ vars.DOCUTILS_PRIVACY_POLICY_URL }}
         run: |
           set -euo pipefail
-          for variable in DOCUTILS_RELEASE_KEYSTORE_BASE64 DOCUTILS_RELEASE_STORE_PASSWORD DOCUTILS_RELEASE_KEY_ALIAS DOCUTILS_RELEASE_KEY_PASSWORD DOCUTILS_ADMOB_APP_ID DOCUTILS_ADMOB_BANNER_ID DOCUTILS_ADMOB_INTERSTITIAL_ID; do
+          for variable in DOCUTILS_RELEASE_KEYSTORE_BASE64 DOCUTILS_RELEASE_STORE_PASSWORD DOCUTILS_RELEASE_KEY_ALIAS DOCUTILS_RELEASE_KEY_PASSWORD DOCUTILS_ADMOB_APP_ID DOCUTILS_ADMOB_BANNER_ID DOCUTILS_ADMOB_INTERSTITIAL_ID DOCUTILS_PRIVACY_POLICY_URL; do
             if [ -z "${!variable}" ]; then
               echo "::error::Missing $variable. See docs/PLAY_RELEASE_CHECKLIST.md"
               exit 1
             fi
           done
+          if [[ "$DOCUTILS_PRIVACY_POLICY_URL" != https://* ]]; then
+            echo "::error::Production release requires a public HTTPS privacy policy URL."
+            exit 1
+          fi
           if [[ "$DOCUTILS_ADMOB_APP_ID" == ca-app-pub-3940256099942544* ]] || [[ "$DOCUTILS_ADMOB_BANNER_ID" == ca-app-pub-3940256099942544* ]] || [[ "$DOCUTILS_ADMOB_INTERSTITIAL_ID" == ca-app-pub-3940256099942544* ]]; then
             echo "::error::Production releases must use live AdMob IDs, not Google test IDs."
             exit 1
@@ -63,6 +68,7 @@ jobs:
           DOCUTILS_ADMOB_APP_ID: ${{ vars.DOCUTILS_ADMOB_APP_ID }}
           DOCUTILS_ADMOB_BANNER_ID: ${{ vars.DOCUTILS_ADMOB_BANNER_ID }}
           DOCUTILS_ADMOB_INTERSTITIAL_ID: ${{ vars.DOCUTILS_ADMOB_INTERSTITIAL_ID }}
+          DOCUTILS_PRIVACY_POLICY_URL: ${{ vars.DOCUTILS_PRIVACY_POLICY_URL }}
         run: |
           set -euo pipefail
           gradle :app:bundleRelease --stacktrace --console=plain
