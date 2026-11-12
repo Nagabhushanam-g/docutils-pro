@@ -44,6 +44,16 @@ android {
         buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"$admobInterstitialId\"")
         buildConfigField("String", "PRIVACY_POLICY_URL", "\"$privacyPolicyUrl\"")
     }
+    // Always use Google's sample ads in debug APKs, even when live AdMob
+    // IDs have been configured in GitHub Actions variables for Play releases.
+    // This prevents invalid production ad traffic during on-device testing.
+    buildTypes {
+        getByName("debug") {
+            manifestPlaceholders["admobAppId"] = "ca-app-pub-3940256099942544~3347511713"
+            buildConfigField("String", "ADMOB_BANNER_ID", "\"ca-app-pub-3940256099942544/6300978111\"")
+            buildConfigField("String", "ADMOB_INTERSTITIAL_ID", "\"ca-app-pub-3940256099942544/1033173712\"")
+        }
+    }
     // Google Play uses a separate upload key, NEVER the GitHub test/debug key.
     // CI supplies the upload key through encrypted Actions secrets.
     val releaseKeystorePath = System.getenv("DOCUTILS_RELEASE_KEYSTORE_PATH")
