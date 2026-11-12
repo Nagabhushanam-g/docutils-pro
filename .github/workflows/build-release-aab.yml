@@ -50,6 +50,25 @@ jobs:
             echo "::error::Production releases must use live AdMob IDs, not Google test IDs."
             exit 1
           fi
+          # An AdMob app ID uses a tilde (~); ad-unit IDs use a slash (/).
+          # Check the IDs without printing the full values in build logs.
+          if [[ ! "$DOCUTILS_ADMOB_APP_ID" =~ ^ca-app-pub-[0-9]{16}~[0-9]{10}$ ]]; then
+            echo "::error::Invalid AdMob App ID format: expected ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy"
+            exit 1
+          fi
+          if [[ ! "$DOCUTILS_ADMOB_BANNER_ID" =~ ^ca-app-pub-[0-9]{16}/[0-9]{10}$ ]] || [[ ! "$DOCUTILS_ADMOB_INTERSTITIAL_ID" =~ ^ca-app-pub-[0-9]{16}/[0-9]{10}$ ]]; then
+            echo "::error::Invalid AdMob ad-unit ID format: expected ca-app-pub-xxxxxxxxxxxxxxxx/yyyyyyyyyy"
+            exit 1
+          fi
+          if [ "$DOCUTILS_ADMOB_BANNER_ID" = "$DOCUTILS_ADMOB_INTERSTITIAL_ID" ]; then
+            echo "::error::Banner and interstitial must use different AdMob ad units."
+            exit 1
+          fi
+          ADMOB_PUBLISHER="${DOCUTILS_ADMOB_APP_ID%%~*}"
+          if [[ "${DOCUTILS_ADMOB_BANNER_ID%%/*}" != "$ADMOB_PUBLISHER" ]] || [[ "${DOCUTILS_ADMOB_INTERSTITIAL_ID%%/*}" != "$ADMOB_PUBLISHER" ]]; then
+            echo "::error::AdMob app and ad-unit IDs must belong to the same publisher."
+            exit 1
+          fi
           mkdir -p "$RUNNER_TEMP/docutils-signing"
           KEYSTORE="$RUNNER_TEMP/docutils-signing/play-upload.jks"
           printf '%s' "$DOCUTILS_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
