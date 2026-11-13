@@ -19,12 +19,12 @@ This document describes **work remaining**; a debug APK success does NOT mean th
    - `DOCUTILS_RELEASE_KEY_ALIAS`
    - `DOCUTILS_RELEASE_KEY_PASSWORD`
    Never share keystore bytes or secret values in chat, logs, screenshots or public files.
-4. Add these GitHub Actions **variables** using real IDs from your own AdMob account:
-   - `DOCUTILS_ADMOB_APP_ID`
-   - `DOCUTILS_ADMOB_BANNER_ID`
-   - `DOCUTILS_ADMOB_INTERSTITIAL_ID`
-   - `DOCUTILS_PRIVACY_POLICY_URL`: public, finalized HTTPS webpage linked from the in-app **More → Privacy policy** menu.
-   The workflow rejects Google's test IDs and refuses a release if any setting is missing.
+4. The production AdMob App ID and two ad-unit IDs supplied by the owner have been configured as **release-workflow fallbacks** (commit `6e1e258`). GitHub Actions variables may override them if explicitly configured:
+   - `DOCUTILS_ADMOB_APP_ID`: production app ID (uses `~`)
+   - `DOCUTILS_ADMOB_BANNER_ID`: production banner unit (uses `/`)
+   - `DOCUTILS_ADMOB_INTERSTITIAL_ID`: production interstitial unit (uses `/`)
+   - `DOCUTILS_PRIVACY_POLICY_URL`: **required**, public, finalized HTTPS webpage linked from the in-app **More → Privacy policy** menu.
+   The workflow rejects Google's test IDs, checks the ad ID format/publisher, and refuses a release if required settings are missing. Confirm that the first supplied unit was created with the **Banner** format and the second with the **Interstitial** format in AdMob.
 5. Configure and publish a Google-certified consent message in AdMob Privacy & messaging, test it for affected regions and verify the in-app Privacy button when required.
 6. Create and activate the non-consumable **one-time product** `docutils_remove_ads_lifetime` in Play Console. Test pending and completed purchase, restore and acknowledgement using license testers on an internal-test track. Do not charge real users until this is verified.
 7. Publish a **public, HTTPS privacy policy** linked from the Play listing and accessible via **More → Privacy policy** inside the release app. Review and customize the draft in `docs/PRIVACY_POLICY_DRAFT.md`, inserting a real publisher name and contact email.
@@ -48,8 +48,8 @@ For Windows PowerShell, replace the second command with `[Convert]::ToBase64Stri
 - Google Play App Signing uses Google-managed app signing and your dedicated upload key. **A Play-installed build may not update a debug-signed APK directly.** Keep debug APK testing separate from store rollout.
 
 ## Known publication blockers
-- Production AdMob IDs / AdMob consent configuration not confirmed.
-- Play Console account and dedicated upload key not confirmed.
+- Production AdMob IDs supplied and configured in the Play release workflow; confirm the Banner/Interstitial unit types, AdMob app status, `app-ads.txt`, and live UMP consent message in the AdMob dashboard.
+- Play Console account created; DocUtils Pro app entry and dedicated Play upload key still need confirmation.
 - A public finalized privacy policy and contact email not supplied.
 - Ad-free one-time product has not been tested on Play's internal testing track.
 - Bundle hasn't yet been generated or uploaded for Play's pre-launch report; additional policy review may be necessary.
