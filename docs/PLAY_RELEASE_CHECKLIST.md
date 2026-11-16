@@ -10,6 +10,13 @@ This document describes **work remaining**; a debug APK success does NOT mean th
 - Debug testing APKs are signed with the stable test keystore. This key is **not** the Play upload key.
 - `Build Play Store AAB` is a manual GitHub Actions workflow; it does not publish to Play.
 
+## Public website and release readiness tooling
+
+- `release-site/` now contains an **undeployed Firebase Hosting starter** with public `/app-ads.txt` and a developer homepage. The privacy template is intentionally outside the deployed `public/` folder until legal publisher/contact details are verified. See `release-site/README.md`.
+- `Play Release Preflight` is a separate manual GitHub Actions workflow that checks release secrets (presence only), AdMob identifiers, an accessible public HTTPS privacy policy, and `/app-ads.txt` on the developer website root. It **does not** produce an AAB or publish to the store.
+- After hosting is deployed, set GitHub Actions variables `DOCUTILS_DEVELOPER_SITE_URL` (domain root only) and `DOCUTILS_PRIVACY_POLICY_URL` (the reviewed policy page).
+- Running preflight before these settings exist is useful for diagnosis: its job will report **failure by design** until required publication inputs exist. Never bypass failed checks by supplying dummy URLs or credentials.
+
 ## Required owner setup (before invoking the release workflow)
 1. Verify your **Google Play Console developer account** and create the DocUtils Pro app using package `com.docutility.pro`.
 2. Create a dedicated *upload key*, **not** the debug/test signing key. Securely store its keystore, passwords and alias. Do not put them in Git or the app.
@@ -50,9 +57,9 @@ For Windows PowerShell, replace the second command with `[Convert]::ToBase64Stri
 ## Known publication blockers
 - Production AdMob IDs supplied and configured in the Play release workflow; confirm the Banner/Interstitial unit types, AdMob app status, `app-ads.txt`, and live UMP consent message in the AdMob dashboard.
 - Play Console account created; DocUtils Pro app entry and dedicated Play upload key still need confirmation.
-- A public finalized privacy policy and contact email not supplied.
+- A public finalized privacy policy, legal publisher name and support email not supplied; developer website starter is prepared but **not deployed**.
 - Ad-free one-time product has not been tested on Play's internal testing track.
-- Bundle hasn't yet been generated or uploaded for Play's pre-launch report; additional policy review may be necessary.
+- Release preflight has not yet passed with real website/credentials; signed Play bundle has not been generated or uploaded to Play for pre-launch checks.
 
 ## Current authoritative references
 - Google Play target API policy: https://support.google.com/googleplay/android-developer/answer/11926878
