@@ -20,9 +20,14 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
     private val _isProUser = MutableStateFlow(false)
     val isProUser: StateFlow<Boolean> = _isProUser
 
+    // Don't advertise an unavailable Play product in test or production builds.
+    private val _purchaseAvailable = MutableStateFlow(false)
+    val purchaseAvailable: StateFlow<Boolean> = _purchaseAvailable
+
     private val billingClient = BillingClient.newBuilder(context)
         .setListener(this)
         .enablePendingPurchases(PendingPurchasesParams.newBuilder().enableOneTimeProducts().build())
+        .enableAutoServiceReconnection()
         .build()
 
     private var connected = false
@@ -43,6 +48,7 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
 
             override fun onBillingServiceDisconnected() {
                 connected = false
+                _purchaseAvailable.value = false
             }
         })
     }
@@ -60,6 +66,7 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
             productDetails = if (result.responseCode == BillingClient.BillingResponseCode.OK)
                 products.productDetailsList.firstOrNull { it.productId == AD_FREE_PRODUCT }
             else null
+            _purchaseAvailable.value = productDetails != null
         }
     }
 
@@ -95,7 +102,10 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
 
     /** Called on app resume to restore purchases or detect completed pending purchases. */
     fun refreshPurchases() {
-        if (billingClient.isReady) queryPurchases() else startConnection()
+        if (billingClient.isReady) {
+            queryPurchases()
+            if (productDetails == null) queryProducts()
+        } else startConnection()
     }
 
     private fun queryPurchases() {
@@ -139,5 +149,8 @@ class BillingManager(private val context: Context) : PurchasesUpdatedListener {
         }
     }
 
-    fun close() { billingClient.endConnection() }
+    fun close() {
+        _purchaseAvailable.value = false
+        billingClient.endConnection()
+    }
 }
