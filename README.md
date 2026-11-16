@@ -8,6 +8,11 @@ Android/Kotlin Jetpack Compose document utility. Image-to-PDF, conservative auto
 - **Build Play Store AAB** (manual only): requires a **separate** Play upload key and production AdMob IDs. Builds `DocUtils-Pro-Play-N.aab` for manual upload to Google Play internal testing. The workflow does NOT publish to Play.
 - The project targets Android 16 (API 36) for Play submission and uses Google Play Billing 8 and Google UMP consent handling.
 
+## Release readiness tools
+
+- **Play Release Preflight** (`.github/workflows/play-release-preflight.yml`) can be run manually under GitHub Actions to report missing release secrets, a published privacy policy, and website-root AdMob `app-ads.txt`. It does not publish an app.
+- **Developer site starter** (`release-site/`) includes Firebase Hosting configuration, the app-ads.txt file, and an undeployed informational homepage. A privacy policy template is stored outside the published directory until the publisher's legal details and SDK disclosures are verified. Deployment requires your own Firebase project and final review.
+
 ## Before Google Play publication
 
 Read **[Play release checklist](docs/PLAY_RELEASE_CHECKLIST.md)** and review the **[privacy policy draft](docs/PRIVACY_POLICY_DRAFT.md)**. Play setup, production ads, completed privacy declarations, a real publisher contact, and purchase testing are required. Do not publish the privacy draft with placeholders.
