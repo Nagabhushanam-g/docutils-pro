@@ -75,10 +75,12 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val isProUser by billingManager.isProUser.collectAsState()
+            val purchaseAvailable by billingManager.purchaseAvailable.collectAsState()
             val adsAllowed by consentManager.canRequestAds.collectAsState()
             val privacyOptionsRequired by consentManager.privacyOptionsRequired.collectAsState()
             MainScreen(
                 isProUser = isProUser,
+                purchaseAvailable = purchaseAvailable,
                 adsAllowed = adsAllowed,
                 privacyOptionsRequired = privacyOptionsRequired,
                 onPrivacyOptions = { consentManager.showPrivacyOptions() },
@@ -110,6 +112,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun MainScreen(
     isProUser: Boolean,
+    purchaseAvailable: Boolean,
     adsAllowed: Boolean,
     privacyOptionsRequired: Boolean,
     onPrivacyOptions: () -> Unit,
@@ -533,7 +536,7 @@ fun MainScreen(
                                 )
                             }
                         }
-                    if (!isProUser) {
+                    if (!isProUser && purchaseAvailable) {
                         Button(onClick = onBuyPro) { Text("Go Ad-Free") }
                     }
                 }
