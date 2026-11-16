@@ -46,6 +46,15 @@ jobs:
             echo "::error::Production release requires a public HTTPS privacy policy URL."
             exit 1
           fi
+          # Verify a real public page responds before embedding its URL in the AAB.
+          if ! curl --fail --location --silent --show-error --max-time 20 --output "$RUNNER_TEMP/docutils-privacy-policy.html" "$DOCUTILS_PRIVACY_POLICY_URL"; then
+            echo "::error::The public privacy policy URL could not be loaded from GitHub Actions."
+            exit 1
+          fi
+          if [ ! -s "$RUNNER_TEMP/docutils-privacy-policy.html" ]; then
+            echo "::error::Privacy policy webpage is empty."
+            exit 1
+          fi
           if [[ "$DOCUTILS_ADMOB_APP_ID" == ca-app-pub-3940256099942544* ]] || [[ "$DOCUTILS_ADMOB_BANNER_ID" == ca-app-pub-3940256099942544* ]] || [[ "$DOCUTILS_ADMOB_INTERSTITIAL_ID" == ca-app-pub-3940256099942544* ]]; then
             echo "::error::Production releases must use live AdMob IDs, not Google test IDs."
             exit 1
@@ -96,7 +105,27 @@ jobs:
           set -euo pipefail
           BUNDLE="app/build/outputs/bundle/release/app-release.aab"
           test -s "$BUNDLE"
-          jarsigner -verify -strict "$BUNDLE" >/dev/null
+          # Upload keys typically have a self-signed certificate, so -strict
+          # would reject a *validly signed* bundle for certificate-chain warnings.
+          # Require the actual jar verified message instead.
+          jarsigner -verify -verbose "$BUNDLE" > "$RUNNER_TEMP/aab-signature-check.txt"
+          if ! grep -q '^jar verified\\.
+          mkdir -p dist
+          cp "$BUNDLE" "dist/DocUtils-Pro-Play-${GITHUB_RUN_NUMBER}.aab"
+          echo "### Signed Play bundle ready for internal testing" >> "$GITHUB_STEP_SUMMARY"
+          ls -lh dist/*.aab | tee -a "$GITHUB_STEP_SUMMARY"
+          sha256sum dist/*.aab | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Upload AAB artifact (not published to Play)
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocUtils-Play-Release-AAB
+          path: dist/*.aab
+          retention-days: 7
+          if-no-files-found: error
+ "$RUNNER_TEMP/aab-signature-check.txt"; then
+            echo "::error::Release AAB signature could not be verified."
+            exit 1
+          fi
           mkdir -p dist
           cp "$BUNDLE" "dist/DocUtils-Pro-Play-${GITHUB_RUN_NUMBER}.aab"
           echo "### Signed Play bundle ready for internal testing" >> "$GITHUB_STEP_SUMMARY"
