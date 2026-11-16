@@ -1,0 +1,25 @@
+name: Play Release Preflight
+run-name: DocUtils Play release readiness • ${{ github.ref_name }}
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Check release configuration without exposing secret values
+        env:
+          DOCUTILS_RELEASE_KEYSTORE_BASE64: ${{ secrets.DOCUTILS_RELEASE_KEYSTORE_BASE64 }}
+          DOCUTILS_RELEASE_STORE_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_STORE_PASSWORD }}
+          DOCUTILS_RELEASE_KEY_ALIAS: ${{ secrets.DOCUTILS_RELEASE_KEY_ALIAS }}
+          DOCUTILS_RELEASE_KEY_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_KEY_PASSWORD }}
+          DOCUTILS_ADMOB_APP_ID: ${{ vars.DOCUTILS_ADMOB_APP_ID || 'ca-app-pub-5641577537743477~7968264475' }}
+          DOCUTILS_ADMOB_BANNER_ID: ${{ vars.DOCUTILS_ADMOB_BANNER_ID || 'ca-app-pub-5641577537743477/2085382400' }}
+          DOCUTILS_ADMOB_INTERSTITIAL_ID: ${{ vars.DOCUTILS_ADMOB_INTERSTITIAL_ID || 'ca-app-pub-5641577537743477/2972068609' }}
+          DOCUTILS_PRIVACY_POLICY_URL: ${{ vars.DOCUTILS_PRIVACY_POLICY_URL }}
+          DOCUTILS_DEVELOPER_SITE_URL: ${{ vars.DOCUTILS_DEVELOPER_SITE_URL }}
+        run: bash scripts/play-release-preflight.sh
