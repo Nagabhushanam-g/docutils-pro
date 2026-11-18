@@ -17,6 +17,25 @@ printf '### Release signing\n' >> "$SUMMARY"
 if have DOCUTILS_RELEASE_KEYSTORE_BASE64 && have DOCUTILS_RELEASE_STORE_PASSWORD &&
    have DOCUTILS_RELEASE_KEY_ALIAS && have DOCUTILS_RELEASE_KEY_PASSWORD; then
   pass 'All four required Play upload-signing secrets are present (contents not logged)'
+  expected_cert="${DOCUTILS_RELEASE_UPLOAD_CERT_SHA256:-}"
+  if [[ ! "$expected_cert" =~ ^[[:xdigit:]]{64}$ ]]; then
+    fail 'Missing or invalid DOCUTILS_RELEASE_UPLOAD_CERT_SHA256 repository variable'
+  else
+    certdir="$(mktemp -d)"
+    if printf '%s' "$DOCUTILS_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$certdir/upload.p12" &&
+       keytool -exportcert -keystore "$certdir/upload.p12" -storepass "$DOCUTILS_RELEASE_STORE_PASSWORD" -alias "$DOCUTILS_RELEASE_KEY_ALIAS" > "$certdir/upload.cer" 2>/dev/null; then
+      actual_cert="$(sha256sum "$certdir/upload.cer" | cut -d' ' -f1)"
+      if [[ "${actual_cert,,}" = "${expected_cert,,}" ]] &&
+         [ "$actual_cert" != "518360924041db59d45ca761cf4babaf484dc978756d8f5fd7446d27872af85b" ]; then
+        pass 'Play upload certificate matches its pinned SHA-256 and is distinct from debug signing'
+      else
+        fail 'Play upload certificate differs from pinned SHA-256 (or is the test/debug key)'
+      fi
+    else
+      fail 'Play upload keystore is unreadable or its alias/password is invalid'
+    fi
+    rm -rf "$certdir"
+  fi
 else
   fail 'Missing one or more Play upload-signing secrets in GitHub Actions (see docs/PLAY_RELEASE_CHECKLIST.md)'
 fi
