@@ -30,6 +30,7 @@ jobs:
           DOCUTILS_RELEASE_STORE_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_STORE_PASSWORD }}
           DOCUTILS_RELEASE_KEY_ALIAS: ${{ secrets.DOCUTILS_RELEASE_KEY_ALIAS }}
           DOCUTILS_RELEASE_KEY_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_KEY_PASSWORD }}
+          DOCUTILS_RELEASE_UPLOAD_CERT_SHA256: ${{ vars.DOCUTILS_RELEASE_UPLOAD_CERT_SHA256 }}
           DOCUTILS_ADMOB_APP_ID: ${{ vars.DOCUTILS_ADMOB_APP_ID || 'ca-app-pub-5641577537743477~7968264475' }}
           DOCUTILS_ADMOB_BANNER_ID: ${{ vars.DOCUTILS_ADMOB_BANNER_ID || 'ca-app-pub-5641577537743477/2085382400' }}
           DOCUTILS_ADMOB_INTERSTITIAL_ID: ${{ vars.DOCUTILS_ADMOB_INTERSTITIAL_ID || 'ca-app-pub-5641577537743477/2972068609' }}
@@ -82,11 +83,25 @@ jobs:
           printf '%s' "$DOCUTILS_RELEASE_KEYSTORE_BASE64" | base64 --decode > "$KEYSTORE"
           chmod 600 "$KEYSTORE"
           keytool -list -keystore "$KEYSTORE" -storepass "$DOCUTILS_RELEASE_STORE_PASSWORD" -alias "$DOCUTILS_RELEASE_KEY_ALIAS" >/dev/null
+          if [[ ! "${DOCUTILS_RELEASE_UPLOAD_CERT_SHA256:-}" =~ ^[[:xdigit:]]{64}$ ]]; then
+            echo "::error::Set DOCUTILS_RELEASE_UPLOAD_CERT_SHA256 (64-character SHA-256) to pin the owner-managed upload certificate."
+            exit 1
+          fi
+          ACTUAL_UPLOAD_CERT_SHA256="$(keytool -exportcert -keystore "$KEYSTORE" -storepass "$DOCUTILS_RELEASE_STORE_PASSWORD" -alias "$DOCUTILS_RELEASE_KEY_ALIAS" | sha256sum | cut -d' ' -f1)"
+          if [[ "${ACTUAL_UPLOAD_CERT_SHA256,,}" != "${DOCUTILS_RELEASE_UPLOAD_CERT_SHA256,,}" ]]; then
+            echo "::error::Play upload-key certificate changed! Refusing release. Restore the original upload keystore, never replace it automatically."
+            exit 1
+          fi
+          # Ensure the production upload key is NOT the permanent test/debug key.
+          if [ "$ACTUAL_UPLOAD_CERT_SHA256" = "518360924041db59d45ca761cf4babaf484dc978756d8f5fd7446d27872af85b" ]; then
+            echo "::error::The debug signing certificate cannot be used as the Play upload certificate."
+            exit 1
+          fi
           echo "DOCUTILS_RELEASE_KEYSTORE_PATH=$KEYSTORE" >> "$GITHUB_ENV"
           # Release upload codes start at 100001 and increase every workflow run.
           echo "DOCUTILS_VERSION_CODE=$((100000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
           echo "### Dedicated Play upload key verified" >> "$GITHUB_STEP_SUMMARY"
-          keytool -exportcert -keystore "$KEYSTORE" -storepass "$DOCUTILS_RELEASE_STORE_PASSWORD" -alias "$DOCUTILS_RELEASE_KEY_ALIAS" | sha256sum | cut -d' ' -f1 >> "$GITHUB_STEP_SUMMARY"
+          echo "$ACTUAL_UPLOAD_CERT_SHA256" >> "$GITHUB_STEP_SUMMARY"
       - name: Build signed release AAB
         env:
           DOCUTILS_RELEASE_STORE_PASSWORD: ${{ secrets.DOCUTILS_RELEASE_STORE_PASSWORD }}
