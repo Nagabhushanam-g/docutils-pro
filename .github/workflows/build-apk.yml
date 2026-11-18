@@ -27,6 +27,15 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Validate release preflight scripts and app-ads assets
+        run: |
+          set -euo pipefail
+          bash -n scripts/play-release-preflight.sh
+          test -s release-site/public/app-ads.txt
+          grep -Fxq 'google.com, pub-5641577537743477, DIRECT, f08c47fec0942fa0' release-site/public/app-ads.txt
+          test ! -f release-site/public/privacy.html
+          test -f release-site/privacy.template.html
+          echo "Preflight syntax and website publisher assets verified; draft policy is not being published."
       - name: Restore permanent Android debug signing key
         env:
           DOCUTILS_DEBUG_KEYSTORE_BASE64: ${{ secrets.DOCUTILS_DEBUG_KEYSTORE_BASE64 }}
