@@ -2,6 +2,11 @@ name: Play Release Preflight
 run-name: DocUtils Play release readiness • ${{ github.ref_name }}
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/play-release-preflight.yml'
+      - 'scripts/play-release-preflight.sh'
 permissions:
   contents: read
 jobs:
