@@ -3,7 +3,7 @@
 **Effective date:** [INSERT DATE]
 
 **Publisher:** [INSERT LEGAL DEVELOPER / COMPANY NAME]  
-**Contact email:** [INSERT PRIVACY SUPPORT EMAIL]  
+**Contact email:** bhushanam2nag@gmail.com  
 **Public privacy policy URL:** [PUBLISH THIS REVIEWED TEXT ON A PUBLIC HTTPS PAGE]
 
 DocUtils Pro is an Android document utility for scanning, cropping, converting images to PDF, basic Word/Excel-to-PDF conversion, viewing documents, and saving files on your device.
@@ -32,6 +32,6 @@ Files you save remain on your device until you delete them using DocUtils Pro or
 ## Policy updates and your choices
 You can delete your local files, choose whether to use Android sharing, and where available access privacy options to manage ad consent. If this policy changes materially, we will update the published version and effective date.
 
-For privacy questions, email **[INSERT PRIVACY SUPPORT EMAIL]**.
+For privacy questions, email **bhushanam2nag@gmail.com**.
 
 **Owner review required:** verify statements against actual third-party SDK behavior, the final data safety form, your Play listing, and regional legal requirements before publishing.
