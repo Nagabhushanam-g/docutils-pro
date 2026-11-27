@@ -1,0 +1,30 @@
+name: Validate Release Website
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'release-site/**'
+      - '.github/workflows/validate-release-site.yml'
+  pull_request:
+    paths:
+      - 'release-site/**'
+      - '.github/workflows/validate-release-site.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Check website, privacy-page safety and seller file
+        run: python -m unittest discover -s release-site -p 'test_*.py' -v
+      - name: Verify the draft is not published by default
+        run: |
+          test ! -e release-site/public/privacy.html
+          test -s release-site/public/app-ads.txt
+          test -s release-site/public/index.html
