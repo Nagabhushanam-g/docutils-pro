@@ -3,6 +3,16 @@ run-name: DocUtils APK • ${{ github.ref_name }} • ${{ github.sha }}
 on:
   push:
     branches: [main, master]
+    paths:
+      - 'app/**'
+      - 'build.gradle.kts'
+      - 'settings.gradle.kts'
+      - 'gradle/**'
+      - 'gradle.properties'
+      - '.github/workflows/build-apk.yml'
+      - 'scripts/play-release-preflight.sh'
+      - 'release-site/public/app-ads.txt'
+      - 'release-site/privacy.template.html'
   workflow_dispatch:
 permissions:
   contents: read
