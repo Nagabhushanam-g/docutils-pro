@@ -32,6 +32,13 @@ android {
     buildTypes {
         getByName("debug") {
             signingConfig = signingConfigs.getByName("debug")
+            // A separate QA app allows test installations without touching
+            // the original com.docutility.pro installation or its signer.
+            // This flag must never be used in the standard debug APK workflow.
+            if (System.getenv("DOCUTILS_ISOLATED_QA") == "true") {
+                applicationIdSuffix = ".familiesqa"
+                versionNameSuffix = "-families-qa"
+            }
         }
     }
     val admobAppId = System.getenv("DOCUTILS_ADMOB_APP_ID")?.takeIf { it.isNotBlank() } ?: "ca-app-pub-3940256099942544~3347511713"
