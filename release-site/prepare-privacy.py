@@ -13,7 +13,6 @@ import re
 ROOT = Path(__file__).resolve().parent
 TEMPLATE = ROOT / "privacy.template.html"
 DESTINATION = ROOT / "public" / "privacy.html"
-HOME = ROOT / "public" / "index.html"
 PLACEHOLDERS = re.compile(r"\\[INSERT[^]]*\\]|\\[PUBLISH[^]]*\\]|DRAFT — DO NOT PUBLISH|REVIEW REQUIRED", re.I)
 
 
