@@ -49,6 +49,7 @@ import com.google.android.gms.ads.AdRequest
 import com.google.android.gms.ads.AdSize
 import com.google.android.gms.ads.AdView
 import com.google.android.gms.ads.MobileAds
+import com.google.android.gms.ads.RequestConfiguration
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -121,6 +122,13 @@ class MainActivity : ComponentActivity() {
         consentManager = AdsConsentManager(this) {
             if (consentManager.canRequestAds.value && !adsInitialized) {
                 adsInitialized = true
+                // For a mixed-audience listing, keep even adult-path ad creatives
+                // limited to a general-audience content rating.
+                MobileAds.setRequestConfiguration(
+                    RequestConfiguration.Builder()
+                        .setMaxAdContentRating(RequestConfiguration.MAX_AD_CONTENT_RATING_G)
+                        .build()
+                )
                 MobileAds.initialize(this) {}
                 adManager.loadInterstitial()
             }
