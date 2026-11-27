@@ -27,7 +27,7 @@ Camera permission may be requested to photograph or scan documents. The Android 
 Files you save remain on your device until you delete them using DocUtils Pro or the system file manager. Uninstalling the app may not delete files saved to public Documents/Pictures folders; app-private cached data may be removed. AdMob and Google Play may retain service data under their respective privacy policies.
 
 ## Children's privacy
-[INSERT VERIFIED AGE/TARGET AUDIENCE POLICY CONSISTENT WITH YOUR PLAY CONSOLE DECLARATIONS.]
+**Planned target audience:** All ages, including children. **Not yet ready for publication.** Before release, finalize a child-specific privacy disclosure after verifying the app's age screen, advertising/consent handling, SDK data processing, parental controls and applicable legal requirements. This paragraph is a preparation note, not the final policy.
 
 ## Policy updates and your choices
 You can delete your local files, choose whether to use Android sharing, and where available access privacy options to manage ad consent. If this policy changes materially, we will update the published version and effective date.
