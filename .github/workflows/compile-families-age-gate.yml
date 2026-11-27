@@ -6,11 +6,17 @@ on:
       - 'app/src/main/java/com/docutility/pro/MainActivity.kt'
       - 'app/src/main/java/com/docutility/pro/monetization/**'
       - 'app/build.gradle.kts'
+      - 'tests/test_families_startup_guards.py'
+      - 'docs/FAMILIES_RELEASE_STATUS.txt'
+      - 'scripts/play-release-preflight.sh'
       - '.github/workflows/compile-families-age-gate.yml'
   pull_request:
     paths:
       - 'app/src/main/java/com/docutility/pro/**'
       - 'app/build.gradle.kts'
+      - 'tests/test_families_startup_guards.py'
+      - 'docs/FAMILIES_RELEASE_STATUS.txt'
+      - 'scripts/play-release-preflight.sh'
       - '.github/workflows/compile-families-age-gate.yml'
   workflow_dispatch:
 permissions:
@@ -32,5 +38,7 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Test Families startup safety boundaries
+        run: python3 -m unittest discover -s tests -p 'test_families_startup_guards.py' -v
       - name: Compile Android Kotlin without signing an APK
         run: gradle :app:compileDebugKotlin --stacktrace --console=plain
