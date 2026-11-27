@@ -2,7 +2,7 @@
 
 **Effective date:** [INSERT DATE]
 
-**Publisher:** [INSERT LEGAL DEVELOPER / COMPANY NAME]  
+**Publisher:** Nagabhushana Guntreddi  
 **Contact email:** bhushanam2nag@gmail.com  
 **Public privacy policy URL:** [PUBLISH THIS REVIEWED TEXT ON A PUBLIC HTTPS PAGE]
 
