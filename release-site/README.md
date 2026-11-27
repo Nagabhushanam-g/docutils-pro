@@ -9,6 +9,17 @@
 - `firebase.json`: Firebase Hosting config to publish the content at the site **root**
 - `privacy.template.html`: private draft; deliberately **outside** `public/`. Do not publish it until all placeholders have been replaced and the disclosures verified.
 
+
+## Prepare the privacy page (before deployment)
+
+The source policy template is deliberately excluded from the public folder. From the repository root, use Python 3 to generate `release-site/public/privacy.html` **only after reviewing its text** and confirming that the app's actual Google AdMob, UMP, Play Billing, document-processing and ML Kit behavior matches the policy:
+
+```powershell
+python .\\release-site\\prepare-privacy.py --publisher "YOUR LEGAL PUBLISHER NAME" --email "YOUR PUBLIC SUPPORT EMAIL" --audience "YOUR VERIFIED TARGET AUDIENCE AND AGE POLICY" --confirm-reviewed
+```
+
+Do not use placeholder details, private email addresses you don't want publicly displayed, or an audience statement you have not verified in Google Play Console. The tool does **not** deploy anything, refuses to overwrite an existing privacy page, and leaves the owner responsible for reviewing regional legal obligations and Play Data safety declarations. After generating the page, inspect it thoroughly, add a privacy policy link to the website homepage, and only then publish via Firebase Hosting. If the page already exists, review it and deliberately manage its updates rather than regenerating over it.
+
 ## Deployment from a trusted computer
 
 1. Create/choose your **own** Firebase project and enable Firebase Hosting.
