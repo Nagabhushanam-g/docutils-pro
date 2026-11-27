@@ -19,7 +19,7 @@ PLACEHOLDERS = re.compile(r"\\[INSERT[^]]*\\]|\\[PUBLISH[^]]*\\]|DRAFT — DO NO
 def build_policy(publisher: str, email: str, audience: str, effective: str) -> str:
     if not publisher.strip() or len(publisher) > 150:
         raise ValueError("Provide the true legal publisher name (maximum 150 characters).")
-    if not re.fullmatch(r"[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+", email):
+    if not re.fullmatch(r"[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+", email):
         raise ValueError("Provide a valid public support email address.")
     if not audience.strip() or len(audience) > 1200:
         raise ValueError("Provide a verified target-audience statement (maximum 1200 characters).")
