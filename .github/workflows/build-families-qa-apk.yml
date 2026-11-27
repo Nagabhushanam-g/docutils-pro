@@ -1,0 +1,70 @@
+name: Build Isolated Families QA APK
+run-name: DocUtils Families QA • ${{ github.sha }}
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/build-families-qa-apk.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build-families-qa:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      DOCUTILS_ISOLATED_QA: 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Android SDK 36
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null || true
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - name: Create disposable isolated QA test key
+        run: |
+          set -euo pipefail
+          QA_KEYSTORE="$RUNNER_TEMP/docutils-families-qa.jks"
+          keytool -genkeypair -noprompt \
+            -keystore "$QA_KEYSTORE" -storetype PKCS12 \
+            -storepass android -keypass android -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 30 \
+            -dname "CN=DocUtils QA, OU=Testing, O=DocUtils Pro, C=IN"
+          echo "DOCUTILS_DEBUG_KEYSTORE_PATH=$QA_KEYSTORE" >> "$GITHUB_ENV"
+          echo "::notice::This disposable key signs ONLY the com.docutility.pro.familiesqa test app."
+      - name: Test Families age safety and build isolated APK
+        run: |
+          set -euo pipefail
+          python3 -m unittest discover -s tests -p 'test_families_startup_guards.py' -v
+          gradle :app:assembleDebug --stacktrace --console=plain
+      - name: Validate unique package and signing
+        run: |
+          set -euo pipefail
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs "$APK"
+          PACKAGE="$("$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$APK" | sed -n "s/^package: name='\\([^']*\\)'.*/\\1/p" | head -1)"
+          if [ "$PACKAGE" != "com.docutility.pro.familiesqa" ]; then
+            echo "::error::Unexpected app ID: $PACKAGE. Refusing to distribute a QA APK which could replace the installed app."
+            exit 1
+          fi
+          echo "### Isolated Families QA APK" >> "$GITHUB_STEP_SUMMARY"
+          echo "App ID: \`$PACKAGE\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Separate from the production DocUtils Pro install.**" >> "$GITHUB_STEP_SUMMARY"
+          echo "Temporary signing key changes every workflow run. Uninstall ONLY the QA variant before installing another QA build; do NOT uninstall the original app." >> "$GITHUB_STEP_SUMMARY"
+          mkdir -p dist
+          cp "$APK" "dist/DocUtils-Families-QA-${GITHUB_RUN_NUMBER}.apk"
+      - name: Upload isolated QA APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DocUtils-Families-QA-APK
+          path: dist/DocUtils-Families-QA-*.apk
+          retention-days: 7
+          if-no-files-found: error
