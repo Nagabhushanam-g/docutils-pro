@@ -95,6 +95,15 @@ else
 fi
 warn 'Confirm the same developer website is set in Google Play and AdMob verifies the app-ads.txt file'
 
+printf '\n### Families target audience — all ages including children\n' >> "$SUMMARY"
+families_status="$(tr -d '\r\n' < docs/FAMILIES_RELEASE_STATUS.txt 2>/dev/null || true)"
+if [ "$families_status" = "APPROVED" ]; then
+  pass 'Publisher marked Families review approved; verify the checklist and latest SDK versions before release'
+  warn 'Families compliance requires manual review of the final app, SDK behavior and Play disclosures'
+else
+  fail 'All-ages audience includes children: Families compliance is PENDING. Complete docs/FAMILIES_RELEASE_REVIEW.md before a Play release.'
+fi
+
 printf '\n### Play Console — manual checks\n' >> "$SUMMARY"
 warn 'Confirm Play Console app entry com.docutility.pro, separate upload key, billing product, store listing, Data safety, screenshots, internal testing, and any required closed testing'
 
