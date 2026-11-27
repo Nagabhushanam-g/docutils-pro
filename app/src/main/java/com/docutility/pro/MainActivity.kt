@@ -52,16 +52,70 @@ import com.google.android.gms.ads.MobileAds
 import kotlinx.coroutines.launch
 import java.io.File
 
-class MainActivity : ComponentActivity() {
+// Neutral age screen. Do not store an age or assume adult status on restart.
+// Children, teens and users who do not answer receive document features without
+// advertising, consent SDK, or billing service initialization.
+private enum class AgeTier { UNDER_13, TEEN, ADULT }
 
+class MainActivity : ComponentActivity() {
     private lateinit var billingManager: BillingManager
     private lateinit var adManager: AdManager
     private lateinit var consentManager: AdsConsentManager
     private var adsInitialized = false
+    private var selectedAgeTier by mutableStateOf<AgeTier?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        setContent {
+            when (selectedAgeTier) {
+                null -> NeutralAgeScreen { selected ->
+                    if (selected == AgeTier.ADULT) {
+                        initializeAdultOnlyServices()
+                    }
+                    selectedAgeTier = selected
+                }
+                AgeTier.ADULT -> {
+                    val isProUser by billingManager.isProUser.collectAsState()
+                    val purchaseAvailable by billingManager.purchaseAvailable.collectAsState()
+                    val adsAllowed by consentManager.canRequestAds.collectAsState()
+                    val privacyOptionsRequired by consentManager.privacyOptionsRequired.collectAsState()
+                    MainScreen(
+                        isProUser = isProUser,
+                        purchaseAvailable = purchaseAvailable,
+                        adsAllowed = adsAllowed,
+                        privacyOptionsRequired = privacyOptionsRequired,
+                        showPurchaseControls = true,
+                        onPrivacyOptions = { consentManager.showPrivacyOptions() },
+                        onRestorePurchases = {
+                            billingManager.refreshPurchases()
+                            Toast.makeText(this, "Checking your Google Play purchases", Toast.LENGTH_SHORT).show()
+                        },
+                        onBuyPro = { billingManager.launchPurchaseFlow(this) },
+                        onShowAd = { onDismissed ->
+                            if (isProUser || !consentManager.canRequestAds.value) onDismissed()
+                            else adManager.afterCompletedAction(this, onDismissed)
+                        }
+                    )
+                }
+                else -> {
+                    MainScreen(
+                        isProUser = false,
+                        purchaseAvailable = false,
+                        adsAllowed = false,
+                        privacyOptionsRequired = false,
+                        showPurchaseControls = false,
+                        onPrivacyOptions = {},
+                        onRestorePurchases = {},
+                        onBuyPro = {},
+                        onShowAd = { onDismissed -> onDismissed() }
+                    )
+                }
+            }
+        }
+    }
 
+    private fun initializeAdultOnlyServices() {
+        // The age choice must happen before creating ad, consent or billing SDKs.
         billingManager = BillingManager(this)
         adManager = AdManager(this)
         consentManager = AdsConsentManager(this) {
@@ -72,29 +126,6 @@ class MainActivity : ComponentActivity() {
             }
         }
         consentManager.refresh()
-
-        setContent {
-            val isProUser by billingManager.isProUser.collectAsState()
-            val purchaseAvailable by billingManager.purchaseAvailable.collectAsState()
-            val adsAllowed by consentManager.canRequestAds.collectAsState()
-            val privacyOptionsRequired by consentManager.privacyOptionsRequired.collectAsState()
-            MainScreen(
-                isProUser = isProUser,
-                purchaseAvailable = purchaseAvailable,
-                adsAllowed = adsAllowed,
-                privacyOptionsRequired = privacyOptionsRequired,
-                onPrivacyOptions = { consentManager.showPrivacyOptions() },
-                onRestorePurchases = {
-                    billingManager.refreshPurchases()
-                    Toast.makeText(this, "Checking your Google Play purchases", Toast.LENGTH_SHORT).show()
-                },
-                onBuyPro = { billingManager.launchPurchaseFlow(this) },
-                onShowAd = { onDismissed ->
-                    if (isProUser || !consentManager.canRequestAds.value) onDismissed()
-                    else adManager.afterCompletedAction(this, onDismissed)
-                }
-            )
-        }
     }
 
     override fun onResume() {
@@ -108,6 +139,30 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@Composable
+private fun NeutralAgeScreen(onChoose: (AgeTier) -> Unit) {
+    // Equal prominence avoids steering younger users toward the adult route.
+    Column(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Text("Choose your age range", style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(12.dp))
+        Text("This helps us provide an age-appropriate experience. Document tools are available to all ages.")
+        Spacer(Modifier.height(20.dp))
+        OutlinedButton(onClick = { onChoose(AgeTier.UNDER_13) }, modifier = Modifier.fillMaxWidth()) {
+            Text("Under 13")
+        }
+        OutlinedButton(onClick = { onChoose(AgeTier.TEEN) }, modifier = Modifier.fillMaxWidth()) {
+            Text("13–17")
+        }
+        OutlinedButton(onClick = { onChoose(AgeTier.ADULT) }, modifier = Modifier.fillMaxWidth()) {
+            Text("18 or older")
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
@@ -115,6 +170,7 @@ fun MainScreen(
     purchaseAvailable: Boolean,
     adsAllowed: Boolean,
     privacyOptionsRequired: Boolean,
+    showPurchaseControls: Boolean,
     onPrivacyOptions: () -> Unit,
     onRestorePurchases: () -> Unit,
     onBuyPro: () -> Unit,
@@ -522,7 +578,7 @@ fun MainScreen(
                                         }
                                     )
                                 }
-                                DropdownMenuItem(
+                                if (showPurchaseControls) DropdownMenuItem(
                                     text = { Text("Restore ad-free purchase") },
                                     onClick = {
                                         moreMenuExpanded = false
@@ -536,7 +592,7 @@ fun MainScreen(
                                 )
                             }
                         }
-                    if (!isProUser && purchaseAvailable) {
+                    if (showPurchaseControls && !isProUser && purchaseAvailable) {
                         Button(onClick = onBuyPro) { Text("Go Ad-Free") }
                     }
                 }
